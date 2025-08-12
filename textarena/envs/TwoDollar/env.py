@@ -308,7 +308,7 @@ Available actions:
                 if word_count > role["behavioral_rules"]["max_words_per_message"]:
                     return False, role["behavioral_rules"]["violation_message"].format(word_count=word_count)
             
-            elif role["name"] == "high_tension" and "[Propose $" in action:
+            elif role["name"] == "high_tension" and ("[Propose $" in action or ("[Propose]" in action and "$" in action)):
                 # Check concession size against own previous proposals
                 amount = self._extract_proposal_amount(action)
                 proposals = self.player_proposal_history[player_id]

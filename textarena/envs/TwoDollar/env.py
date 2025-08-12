@@ -205,12 +205,12 @@ Available actions:
         # Process the action
         if self._is_valid_action(action):
             self._process_valid_action(current_pid, action)
-        else:
-            # Handle invalid action - TextArena will manage turn advancement
-            self._handle_invalid_action(current_pid, action)
         
         # Check for game end conditions
-        if self._check_deal_accepted() or self.state.turn >= self.max_rounds - 1:
+        deal_accepted = self._check_deal_accepted()
+        max_turns_reached = self.state.turn >= self.max_rounds - 1
+        
+        if deal_accepted or max_turns_reached:
             self._end_game()
         
         # Let TextArena handle turn advancement and return
@@ -225,12 +225,27 @@ Available actions:
         has_accept = "[Accept]" in action
         has_reject = "[Reject]" in action
         
-        if not (has_propose or has_accept or has_reject):
+        # Count how many action types are present
+        action_count = sum([has_propose, has_accept, has_reject])
+        
+        if action_count == 0:
+            self.state.set_invalid_move("Invalid action. Use: [Propose] $X.XX, [Accept], or [Reject]")
+            return False
+        elif action_count > 1:
+            self.state.set_invalid_move("Multiple actions detected. Use only one action per turn: [Propose] $X.XX, [Accept], or [Reject]")
             return False
         
         # Validate proposal format
         if has_propose:
             if not self._is_valid_proposal(action):
+                # Get specific error message for proposal validation
+                amount = self._extract_proposal_amount(action)
+                if amount is None:
+                    self.state.set_invalid_move("Invalid proposal format. Use: [Propose] $X.XX where X.XX is a valid dollar amount")
+                elif amount < 0 or amount > self.total_amount:
+                    self.state.set_invalid_move(f"Invalid amount ${amount:.2f}. Must be between $0.00 and ${self.total_amount:.2f}")
+                else:
+                    self.state.set_invalid_move("Invalid proposal format")
                 return False
         
         # Validate accept/reject actions require a current proposal
@@ -401,26 +416,6 @@ Available actions:
         # Update game state
         self.state.game_state["negotiation_history"] = self.negotiation_history
         self.state.game_state["player_proposal_history"] = self.player_proposal_history
-    
-    def _handle_invalid_action(self, player_id: int, action: str):
-        """Handle an invalid action using TwoPlayerState's built-in escalation."""
-        # Determine the reason for invalid action
-        if "[Propose]" in action and "$" in action:
-            amount = self._extract_proposal_amount(action)
-            if amount is None:
-                reason = "Invalid proposal format. Use: [Propose] $X.XX where X.XX is a valid dollar amount"
-            elif amount < 0 or amount > self.total_amount:
-                reason = f"Invalid amount ${amount:.2f}. Must be between $0.00 and ${self.total_amount:.2f}"
-            else:
-                reason = "Invalid proposal format"
-        elif not any(keyword in action for keyword in ["[Propose]", "[Accept]", "[Reject]"]):
-            reason = "Invalid action. Use: [Propose] $X.XX, [Accept], or [Reject]"
-        else:
-            reason = "Invalid action format"
-        
-        # Use TwoPlayerState's built-in escalation handling
-        # If player exceeds error allowance, TwoPlayerState automatically ends the game
-        self.state.set_invalid_move(reason)
     
     
     def _check_deal_accepted(self) -> bool:

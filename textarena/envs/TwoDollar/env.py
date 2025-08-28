@@ -123,9 +123,6 @@ class TwoDollarEnv(ta.Env):
             game_state=game_state,
             player_prompt_function=self._generate_player_prompt
         )
-        
-        # Player 0 starts
-        self.state.current_player_id = 0
     
     def _assign_random_roles(self) -> Dict[int, Dict]:
         """Randomly assign 2 different roles"""
@@ -155,7 +152,7 @@ class TwoDollarEnv(ta.Env):
         # Basic game setup
         prompt = f"""TWO DOLLAR NEGOTIATION GAME
 
-You are negotiating with another player over how to split ${self.total_amount:.2f} total.
+You are Player {player_id} negotiating with another player over how to split ${self.total_amount:.2f} total.
 There are {self.max_rounds} maximum rounds.
 
 GAME RULES:
@@ -391,6 +388,9 @@ Available actions:
         message = f"Player {player_id} rejects the proposal"
         if rationale:
             message = f"Player {player_id} says: {rationale}\n{message}"
+
+        # Reset the proposal amount to none
+        self.current_proposal["amount"] = None
         
         self.state.add_observation(
             from_id=ta.GAME_ID,
@@ -513,18 +513,52 @@ Available actions:
         # Set rewards and winners
         self._set_final_rewards()
     
+    # def _set_final_rewards(self):
+    #     """Set final rewards and winner information."""
+    #     # Set rewards as dollar amounts (scaled to 0-100 for TextArena)
+    #     max_possible = self.total_amount
+    #     rewards = {}
+    #     for player_id in [0, 1]:
+    #         # Scale to 0-100 range
+    #         normalized_reward = int((self.final_amounts[player_id] / max_possible) * 100)
+    #         rewards[player_id] = max(0, normalized_reward)
+        
+    #     self.state.rewards = rewards
+        
+    #     # Determine winners (players who got more than $0)
+    #     winners = [pid for pid in [0, 1] if self.final_amounts[pid] > 0]
+        
+    #     if len(winners) == 2:
+    #         # Both players won (got some money)
+    #         if self.final_amounts[0] > self.final_amounts[1]:
+    #             # Player 0 got more
+    #             self.state.game_info[0]["winner"] = True
+    #             self.state.game_info[1]["winner"] = False
+    #             self.state.step_info["winner_reason"] = f"Player 1 received more money (${self.final_amounts[0]:.2f} vs ${self.final_amounts[1]:.2f})"
+    #         elif self.final_amounts[1] > self.final_amounts[0]:
+    #             # Player 1 got more
+    #             self.state.game_info[0]["winner"] = False
+    #             self.state.game_info[1]["winner"] = True
+    #             self.state.step_info["winner_reason"] = f"Player 2 received more money (${self.final_amounts[1]:.2f} vs ${self.final_amounts[0]:.2f})"
+    #         else:
+    #             # Equal amounts - draw
+    #             self.state.game_info[0]["winner"] = False
+    #             self.state.game_info[1]["winner"] = False
+    #             self.state.step_info["draw_reason"] = f"Both players received equal amounts (${self.final_amounts[0]:.2f} each)"
+    #     elif len(winners) == 1:
+    #         # Only one player won
+    #         winner_id = winners[0]
+    #         self.state.game_info[winner_id]["winner"] = True
+    #         self.state.game_info[1 - winner_id]["winner"] = False
+    #         self.state.step_info["winner_reason"] = f"Player {winner_id + 1} met their role requirements, Player {2 - winner_id} failed"
+    #     else:
+    #         # No winners - both failed
+    #         self.state.game_info[0]["winner"] = False
+    #         self.state.game_info[1]["winner"] = False
+    #         self.state.step_info["draw_reason"] = "Both players failed to meet their role requirements"
+
     def _set_final_rewards(self):
-        """Set final rewards and winner information."""
-        # Set rewards as dollar amounts (scaled to 0-100 for TextArena)
-        max_possible = self.total_amount
-        rewards = {}
-        for player_id in [0, 1]:
-            # Scale to 0-100 range
-            normalized_reward = int((self.final_amounts[player_id] / max_possible) * 100)
-            rewards[player_id] = max(0, normalized_reward)
-        
-        self.state.rewards = rewards
-        
+        """Set final rewards and winner information."""        
         # Determine winners (players who got more than $0)
         winners = [pid for pid in [0, 1] if self.final_amounts[pid] > 0]
         
@@ -532,30 +566,19 @@ Available actions:
             # Both players won (got some money)
             if self.final_amounts[0] > self.final_amounts[1]:
                 # Player 0 got more
-                self.state.game_info[0]["winner"] = True
-                self.state.game_info[1]["winner"] = False
-                self.state.step_info["winner_reason"] = f"Player 1 received more money (${self.final_amounts[0]:.2f} vs ${self.final_amounts[1]:.2f})"
+                self.state.set_winner(player_id=0, reason=f"Player 0 received more money (${self.final_amounts[0]:.2f} vs ${self.final_amounts[1]:.2f})")
             elif self.final_amounts[1] > self.final_amounts[0]:
                 # Player 1 got more
-                self.state.game_info[0]["winner"] = False
-                self.state.game_info[1]["winner"] = True
-                self.state.step_info["winner_reason"] = f"Player 2 received more money (${self.final_amounts[1]:.2f} vs ${self.final_amounts[0]:.2f})"
+                self.state.set_winner(player_id=1, reason=f"Player 1 received more money (${self.final_amounts[1]:.2f} vs ${self.final_amounts[0]:.2f})")
             else:
                 # Equal amounts - draw
-                self.state.game_info[0]["winner"] = False
-                self.state.game_info[1]["winner"] = False
-                self.state.step_info["draw_reason"] = f"Both players received equal amounts (${self.final_amounts[0]:.2f} each)"
+                self.state.set_draw(reason=f"Both players received equal amounts (${self.final_amounts[0]:.2f} each)")
         elif len(winners) == 1:
             # Only one player won
-            winner_id = winners[0]
-            self.state.game_info[winner_id]["winner"] = True
-            self.state.game_info[1 - winner_id]["winner"] = False
-            self.state.step_info["winner_reason"] = f"Player {winner_id + 1} met their role requirements, Player {2 - winner_id} failed"
+            self.state.set_winner(player_id=winners[0], reason=f"Player {winners[0]} met their role requirements, Player {1 - winners[0]} failed")
         else:
             # No winners - both failed
-            self.state.game_info[0]["winner"] = False
-            self.state.game_info[1]["winner"] = False
-            self.state.step_info["draw_reason"] = "Both players failed to meet their role requirements"
+            self.state.set_draw(reason="Both players failed to meet their role requirements")
     
     def get_observation(self):
         """Get observation for current player."""

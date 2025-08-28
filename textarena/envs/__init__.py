@@ -362,6 +362,10 @@ register_with_versions(id="TruthAndDeception-v0-extreme", entry_point="textarena
 # UltimateTicTacToe [2 Player]
 register_with_versions(id="UltimateTicTacToe-v0", entry_point="textarena.envs.UltimateTicTacToe.env:UltimateTicTacToeEnv", wrappers={"default": DEFAULT_WRAPPERS, "-train": BOARDGAME_WRAPPERS})
 
+# UltimatumGame [2 Player]
+register_with_versions(id="IteratedUltimatumGame-v0",  entry_point="textarena.envs.IteratedUltimatumGame.env:IteratedUltimatumGameEnv", wrappers={"default": DEFAULT_WRAPPERS, "-train": CONVERSATIONAL_WRAPPERS}, pool=50, max_turns=10, alternate_roles=False)
+register_with_versions(id="IteratedUltimatumGame-v0-alternate",  entry_point="textarena.envs.IteratedUltimatumGame.env:IteratedUltimatumGameEnv", wrappers={"default": DEFAULT_WRAPPERS, "-train": CONVERSATIONAL_WRAPPERS}, pool=50, max_turns=12, alternate_roles=True)
+
 # UsedCarNegotiation [2 Player]
 register_with_versions(id="UsedCarNegotiation-v0", entry_point="textarena.envs.UsedCarNegotiation.env:UsedCarNegotiationEnv", wrappers={"default": [LLMObservationWrapper], "-train": CONVERSATIONAL_WRAPPERS}, max_rounds=10)
 register_with_versions(id="UsedCarNegotiation-v0-strong-buyer", entry_point="textarena.envs.UsedCarNegotiation.env:UsedCarNegotiationEnv", wrappers={"default": [LLMObservationWrapper], "-train": CONVERSATIONAL_WRAPPERS}, max_rounds=10, batna=("strong", "weak"))

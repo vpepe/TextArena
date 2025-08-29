@@ -12,7 +12,7 @@ class MarketEntryGameEnv(ta.Env):
                  entry_profit: int = 15,
                  overcrowding_penalty: int = -5,
                  safe_payoff: int = 5,
-                 num_players: int = 4):
+                 default_num_players: int = 4):
         """
         Initialize the Market Entry Game environment.
         
@@ -31,7 +31,7 @@ class MarketEntryGameEnv(ta.Env):
         self.entry_profit = entry_profit
         self.overcrowding_penalty = overcrowding_penalty
         self.safe_payoff = safe_payoff
-        self.default_num_players = num_players
+        self.default_num_players = default_num_players
         
         # Action regex - matches [E] for enter or [S] for stay out
         self.decision_pattern = re.compile(r"\[(E|S)\]", re.IGNORECASE)
@@ -74,18 +74,13 @@ class MarketEntryGameEnv(ta.Env):
         }
         
         self.state.reset(game_state=game_state, player_prompt_function=self._prompt)
+        self.state.add_observation(
+            message=f"--- Starting Round {self.state.game_state['round']} ---\n"
+                    f"Communication phase: Submit your message using {{message}} format for public communication.",
+            observation_type=ta.ObservationType.GAME_MESSAGE
+        )
 
     def _prompt(self, player_id: int, game_state: Dict[str, Any]) -> str:
-        if game_state.get("phase") == "conversation":
-            phase_round_description = (
-                f"Round {game_state['round']} - Communication Round {game_state['conversation_round'] + 1} "
-                f"of {game_state['total_conversation_rounds']}\n"
-            )
-        else:
-            phase_round_description = (
-                f"Round {game_state['round']} - Decision Phase"
-            )
-            
         return (
             f"You are Player {player_id} in a Market Entry Game spanning "
             f"{game_state['num_rounds']} rounds.\n\n"
@@ -117,8 +112,6 @@ class MarketEntryGameEnv(ta.Env):
             f"  Example: 'Based on our discussion, I will [E] enter the market.'\n"
             f"- Invalid moves (wrong format) will result in warnings, then elimination.\n"
             f"- If you don't send any public message during conversation (no {{}} format), others will see that you remained silent.\n\n"
-            f"Game Status: \n"
-            f"{phase_round_description}\n"
         )
 
     def step(self, action: str) -> Tuple[bool, ta.Info]:
@@ -191,7 +184,7 @@ class MarketEntryGameEnv(ta.Env):
                     message=f"Conversation finished for round {self.state.game_state['round']}.\n"
                            f"Decision phase: Submit '[E]' to enter the market or '[S]' to stay out.\n"
                            f"Decisions will be revealed after all players decide.",
-                    observation_type=ta.ObservationType.GAME_BOARD
+                    observation_type=ta.ObservationType.GAME_MESSAGE
                 )
 
     def _handle_decision_phase(self, action: str):

@@ -445,7 +445,7 @@ register_with_versions(id="Poker-v0-extreme",   entry_point="textarena.envs.Poke
 register_with_versions(id="PublicGoodsGame-v0", entry_point="textarena.envs.PublicGoodsGame.env:PublicGoodsGameEnv", wrappers={"default": DEFAULT_WRAPPERS, "-train": [GameMessagesObservationWrapper, ActionFormattingWrapper]}, num_rounds=3, communication_turns=3, endowment=20, multiplication_factor=1.5, num_players=3)
 
 # Market Entry Game [Multiple Players]
-register_with_versions(id="MarketEntryGame-v0", entry_point="textarena.envs.MarketEntryGame.env:MarketEntryGameEnv", wrappers={"default": DEFAULT_WRAPPERS, "-train": [GameMessagesObservationWrapper, ActionFormattingWrapper]}, num_rounds=5, communication_turns=3, market_capacity=2, entry_profit=15, overcrowding_penalty=-5,safe_payoff=5,num_players=4)
+register_with_versions(id="MarketEntryGame-v0", entry_point="textarena.envs.MarketEntryGame.env:MarketEntryGameEnv", wrappers={"default": DEFAULT_WRAPPERS, "-train": [GameMessagesObservationWrapper, ActionFormattingWrapper]}, num_rounds=5, communication_turns=3, market_capacity=2, entry_profit=15, overcrowding_penalty=-5, safe_payoff=5, default_num_players=4)
 
 # ThreePlayerTicTacToe [3 Players]
 register_with_versions(id="ThreePlayerTicTacToe-v0", entry_point="textarena.envs.ThreePlayerTicTacToe.env:ThreePlayerTicTacToeEnv", wrappers={"default": DEFAULT_WRAPPERS, "-train": BOARDGAME_WRAPPERS})

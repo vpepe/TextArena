@@ -16,7 +16,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import textarena as ta
 from textarena.state import TwoPlayerState
-
+from textarena.envs.TwoDollar.renderer import render_game_state, render_negotiation_summary, render_final_results
 
 class TwoDollarEnv(ta.Env):
     """
@@ -512,50 +512,6 @@ Available actions:
         
         # Set rewards and winners
         self._set_final_rewards()
-    
-    # def _set_final_rewards(self):
-    #     """Set final rewards and winner information."""
-    #     # Set rewards as dollar amounts (scaled to 0-100 for TextArena)
-    #     max_possible = self.total_amount
-    #     rewards = {}
-    #     for player_id in [0, 1]:
-    #         # Scale to 0-100 range
-    #         normalized_reward = int((self.final_amounts[player_id] / max_possible) * 100)
-    #         rewards[player_id] = max(0, normalized_reward)
-        
-    #     self.state.rewards = rewards
-        
-    #     # Determine winners (players who got more than $0)
-    #     winners = [pid for pid in [0, 1] if self.final_amounts[pid] > 0]
-        
-    #     if len(winners) == 2:
-    #         # Both players won (got some money)
-    #         if self.final_amounts[0] > self.final_amounts[1]:
-    #             # Player 0 got more
-    #             self.state.game_info[0]["winner"] = True
-    #             self.state.game_info[1]["winner"] = False
-    #             self.state.step_info["winner_reason"] = f"Player 1 received more money (${self.final_amounts[0]:.2f} vs ${self.final_amounts[1]:.2f})"
-    #         elif self.final_amounts[1] > self.final_amounts[0]:
-    #             # Player 1 got more
-    #             self.state.game_info[0]["winner"] = False
-    #             self.state.game_info[1]["winner"] = True
-    #             self.state.step_info["winner_reason"] = f"Player 2 received more money (${self.final_amounts[1]:.2f} vs ${self.final_amounts[0]:.2f})"
-    #         else:
-    #             # Equal amounts - draw
-    #             self.state.game_info[0]["winner"] = False
-    #             self.state.game_info[1]["winner"] = False
-    #             self.state.step_info["draw_reason"] = f"Both players received equal amounts (${self.final_amounts[0]:.2f} each)"
-    #     elif len(winners) == 1:
-    #         # Only one player won
-    #         winner_id = winners[0]
-    #         self.state.game_info[winner_id]["winner"] = True
-    #         self.state.game_info[1 - winner_id]["winner"] = False
-    #         self.state.step_info["winner_reason"] = f"Player {winner_id + 1} met their role requirements, Player {2 - winner_id} failed"
-    #     else:
-    #         # No winners - both failed
-    #         self.state.game_info[0]["winner"] = False
-    #         self.state.game_info[1]["winner"] = False
-    #         self.state.step_info["draw_reason"] = "Both players failed to meet their role requirements"
 
     def _set_final_rewards(self):
         """Set final rewards and winner information."""        
@@ -601,3 +557,31 @@ Available actions:
             observation.append((ta.GAME_ID, proposal_info, ta.ObservationType.GAME_BOARD))
         
         return player_id, observation
+
+    def get_board_str(self) -> str:
+        """
+        Return the main board string:
+        - Ongoing: current state (proposals + history)
+        - Done: negotiation summary (and results)
+        """
+        if getattr(self.state, "done", False):
+            # Show summary + results at the end
+            summary = render_negotiation_summary(
+                negotiation_history=self.negotiation_history,
+                player_proposal_history=self.player_proposal_history,
+                total_amount=self.total_amount,
+            )
+            results = render_final_results(
+                final_amounts=self.final_amounts,
+                player_roles=self.player_roles,
+                total_amount=self.total_amount,
+            )
+            return f"{summary}\n\n{results}"
+        
+        # Default ongoing board
+        return render_game_state(
+            current_proposal=self.current_proposal,
+            total_amount=self.total_amount,
+            negotiation_history=self.negotiation_history,
+            max_history_items=5,
+        )

@@ -33,8 +33,8 @@ def render_game_state(current_proposal: Dict[str, Any],
         other_amount = total_amount - amount
         
         output.append("=== CURRENT PROPOSAL ===")
-        output.append(f"Player {proposer_id + 1} wants: ${amount:.2f}")
-        output.append(f"Player {2 - proposer_id} gets: ${other_amount:.2f}")
+        output.append(f"Player {proposer_id} wants: ${amount:.2f}")
+        output.append(f"Player {1 - proposer_id} gets: ${other_amount:.2f}")
         output.append("")
     else:
         output.append("=== NO CURRENT PROPOSAL ===")
@@ -64,7 +64,7 @@ def render_game_state(current_proposal: Dict[str, Any],
                 action_desc = action_type
             
             # Format the history entry
-            entry = f"Round {round_num + 1}: Player {player_id + 1} {action_desc}"
+            entry = f"Round {round_num + 1}: Player {player_id} {action_desc}"
             if message:
                 entry += f" (said: \"{message}\")"
             
@@ -256,7 +256,7 @@ def render_negotiation_summary(negotiation_history: List[Dict[str, Any]],
         player_actions = [a for a in negotiation_history if a["player_id"] == player_id]
         player_proposals = player_proposal_history.get(player_id, [])
         
-        output.append(f"Player {player_id + 1} Statistics:")
+        output.append(f"Player {player_id} Statistics:")
         output.append(f"  Actions taken: {len(player_actions)}")
         output.append(f"  Proposals made: {len(player_proposals)}")
         
@@ -286,7 +286,7 @@ def render_negotiation_summary(negotiation_history: List[Dict[str, Any]],
             other_amount = total_amount - amount
             round_num = proposal["round"]
             
-            output.append(f"  Round {round_num + 1}: Player {player_id + 1} → "
+            output.append(f"  Round {round_num + 1}: Player {player_id} → "
                          f"${amount:.2f} for self, ${other_amount:.2f} for opponent")
         output.append("")
     
@@ -326,7 +326,7 @@ def render_final_results(final_amounts: Dict[int, float],
         role = player_roles.get(player_id, {})
         role_name = role.get("name", "Unknown")
         
-        output.append(f"Player {player_id + 1} ({role_name}):")
+        output.append(f"Player {player_id} ({role_name}):")
         output.append(f"  Final amount: ${amount:.2f}")
         
         # Check role compliance

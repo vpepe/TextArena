@@ -11,6 +11,7 @@ CONVERSATIONAL_WRAPPERS = [LLMObservationWrapper, ClipCharactersActionWrapper]
 
 
 # 2048 [1 Player]
+# Standard 4x4 board variants
 register_with_versions(id="2048-v0-ultra-easy",     entry_point="textarena.envs.Game2048.env:Game2048Env", wrappers={"default": DEFAULT_WRAPPERS, "-train": BOARDGAME_WRAPPERS}, target_tile=32    )
 register_with_versions(id="2048-v0-mega-easy",      entry_point="textarena.envs.Game2048.env:Game2048Env", wrappers={"default": DEFAULT_WRAPPERS, "-train": BOARDGAME_WRAPPERS}, target_tile=64    )
 register_with_versions(id="2048-v0-super-easy",     entry_point="textarena.envs.Game2048.env:Game2048Env", wrappers={"default": DEFAULT_WRAPPERS, "-train": BOARDGAME_WRAPPERS}, target_tile=128    )
@@ -20,6 +21,13 @@ register_with_versions(id="2048-v0",                entry_point="textarena.envs.
 register_with_versions(id="2048-v0-hard",           entry_point="textarena.envs.Game2048.env:Game2048Env", wrappers={"default": DEFAULT_WRAPPERS, "-train": BOARDGAME_WRAPPERS}, target_tile=4096   )
 register_with_versions(id="2048-v0-very-hard",      entry_point="textarena.envs.Game2048.env:Game2048Env", wrappers={"default": DEFAULT_WRAPPERS, "-train": BOARDGAME_WRAPPERS}, target_tile=8192   )
 register_with_versions(id="2048-v0-extreme",        entry_point="textarena.envs.Game2048.env:Game2048Env", wrappers={"default": DEFAULT_WRAPPERS, "-train": BOARDGAME_WRAPPERS}, target_tile=16384  )
+
+# Arbitrary board size variants
+register_with_versions(id="2048-v0-3x3",            entry_point="textarena.envs.Game2048.env:Game2048Env", wrappers={"default": DEFAULT_WRAPPERS, "-train": BOARDGAME_WRAPPERS}, target_tile=2048, board_size=3)
+register_with_versions(id="2048-v0-5x5",            entry_point="textarena.envs.Game2048.env:Game2048Env", wrappers={"default": DEFAULT_WRAPPERS, "-train": BOARDGAME_WRAPPERS}, target_tile=2048, board_size=5)
+register_with_versions(id="2048-v0-6x6",            entry_point="textarena.envs.Game2048.env:Game2048Env", wrappers={"default": DEFAULT_WRAPPERS, "-train": BOARDGAME_WRAPPERS}, target_tile=2048, board_size=6)
+register_with_versions(id="2048-v0-8x8",            entry_point="textarena.envs.Game2048.env:Game2048Env", wrappers={"default": DEFAULT_WRAPPERS, "-train": BOARDGAME_WRAPPERS}, target_tile=2048, board_size=8)
+register_with_versions(id="2048-v0-10x10",          entry_point="textarena.envs.Game2048.env:Game2048Env", wrappers={"default": DEFAULT_WRAPPERS, "-train": BOARDGAME_WRAPPERS}, target_tile=2048, board_size=10)
 
 # Bandit [1 Player]
 register_with_versions(id="Bandit-v0",        entry_point="textarena.envs.Bandit.env:BanditEnv", wrappers={"default": DEFAULT_WRAPPERS, "-train": [GameMessagesObservationWrapper, ActionFormattingWrapper]}, buttons=['red', 'blue', 'green', 'yellow', 'purple'],                                               p_gap=0.10, num_turns=20)
@@ -85,9 +93,6 @@ register_with_versions(id="RushHour-v0", entry_point="textarena.envs.RushHour.en
 # Secretary [1 Player]
 register_with_versions(id="Secretary-v0",       entry_point="textarena.envs.Secretary.env:SecretaryEnv", wrappers={"default": DEFAULT_WRAPPERS, "-train": DEFAULT_WRAPPERS}, N=5    )
 register_with_versions(id="Secretary-v0-long",  entry_point="textarena.envs.Secretary.env:SecretaryEnv", wrappers={"default": DEFAULT_WRAPPERS, "-train": DEFAULT_WRAPPERS}, N=10   )
-
-# Set [1 Player]
-register_with_versions(id="Set-v0", entry_point="textarena.envs.Set.env:SetEnv", wrappers={"default": DEFAULT_WRAPPERS, "-train": BOARDGAME_WRAPPERS})
 
 # Slitherlink [1 Player]
 register_with_versions(id="Slitherlink-v0", entry_point="textarena.envs.Slitherlink.env:SlitherlinkEnv", wrappers={"default": DEFAULT_WRAPPERS, "-train": BOARDGAME_WRAPPERS}, rows = 4, cols = 4, max_turns = 200)
@@ -357,6 +362,10 @@ register_with_versions(id="TwoDollar-v0", entry_point="textarena.envs.TwoDollar.
 # UltimateTicTacToe [2 Player]
 register_with_versions(id="UltimateTicTacToe-v0", entry_point="textarena.envs.UltimateTicTacToe.env:UltimateTicTacToeEnv", wrappers={"default": DEFAULT_WRAPPERS, "-train": BOARDGAME_WRAPPERS})
 
+# UltimatumGame [2 Player]
+register_with_versions(id="IteratedUltimatumGame-v0",  entry_point="textarena.envs.IteratedUltimatumGame.env:IteratedUltimatumGameEnv", wrappers={"default": DEFAULT_WRAPPERS, "-train": CONVERSATIONAL_WRAPPERS}, pool=50, max_turns=10, alternate_roles=False)
+register_with_versions(id="IteratedUltimatumGame-v0-alternate",  entry_point="textarena.envs.IteratedUltimatumGame.env:IteratedUltimatumGameEnv", wrappers={"default": DEFAULT_WRAPPERS, "-train": CONVERSATIONAL_WRAPPERS}, pool=50, max_turns=12, alternate_roles=True)
+
 # UsedCarNegotiation [2 Player]
 register_with_versions(id="UsedCarNegotiation-v0", entry_point="textarena.envs.UsedCarNegotiation.env:UsedCarNegotiationEnv", wrappers={"default": [LLMObservationWrapper], "-train": CONVERSATIONAL_WRAPPERS}, max_rounds=10)
 register_with_versions(id="UsedCarNegotiation-v0-strong-buyer", entry_point="textarena.envs.UsedCarNegotiation.env:UsedCarNegotiationEnv", wrappers={"default": [LLMObservationWrapper], "-train": CONVERSATIONAL_WRAPPERS}, max_rounds=10, batna=("strong", "weak"))
@@ -437,6 +446,9 @@ register_with_versions(id="Poker-v0-extreme",   entry_point="textarena.envs.Poke
 
 # PublicGoodsGame [Multiple Players]
 register_with_versions(id="PublicGoodsGame-v0", entry_point="textarena.envs.PublicGoodsGame.env:PublicGoodsGameEnv", wrappers={"default": DEFAULT_WRAPPERS, "-train": [GameMessagesObservationWrapper, ActionFormattingWrapper]}, num_rounds=3, communication_turns=3, endowment=20, multiplication_factor=1.5, num_players=3)
+
+# Market Entry Game [Multiple Players]
+register_with_versions(id="MarketEntryGame-v0", entry_point="textarena.envs.MarketEntryGame.env:MarketEntryGameEnv", wrappers={"default": DEFAULT_WRAPPERS, "-train": [GameMessagesObservationWrapper, ActionFormattingWrapper]}, num_rounds=5, communication_turns=3, market_capacity=2, entry_profit=15, overcrowding_penalty=-5, safe_payoff=5, default_num_players=4)
 
 # ThreePlayerTicTacToe [3 Players]
 register_with_versions(id="ThreePlayerTicTacToe-v0", entry_point="textarena.envs.ThreePlayerTicTacToe.env:ThreePlayerTicTacToeEnv", wrappers={"default": DEFAULT_WRAPPERS, "-train": BOARDGAME_WRAPPERS})

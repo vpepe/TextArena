@@ -2506,7 +2506,12 @@ It covers:
 
 Run the full suite:  
 ```bash
-pytest textarena/envs/TwoDollar/test_two_dollar_env.py -v
+# Run all tests
+python -m pytest textarena/envs/TwoDollar/test_env.py -v
+
+# Run specific test categories
+python -m pytest textarena/envs/TwoDollar/test_env.py::TestTwoDollarValidation -v
+python -m pytest textarena/envs/TwoDollar/test_env.py::TestTwoDollarRoles -v
 ```
 
 **Contact:** For issues or questions regarding this environment, please reach out to **charipol@amazon.com**.

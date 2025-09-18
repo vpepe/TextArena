@@ -68,7 +68,7 @@ class TwentyQuestionsEnv(ta.Env):
     def _prompt(self, player_id: int, game_state: Dict[int, Any]) -> str:
         return (
             f"You are Player {player_id}. You are playing 20 Questions ({'Hardcore' if self.hardcore else 'Basic'}).\n"
-            f"The gamemaster has chosen an object that can be one or two words. This object is related to {self.game_theme}. You have to guess this object by asking yes-or-no questions.\n"
+            f"The gamemaster has chosen a word that can be one or two words. This word is related to {self.game_theme}. You have to guess this word by asking yes-or-no questions.\n"
             "The game will last for a maximum of 20 questions. After 20 questions, the gamemaster will prompt you to make a guess.\n"
             "You may ask your question in any manner, so long they are not wrapped in square brackets.\n"
             "Then, to make your final word guess, ensure that you wrap it with square brackets, e.g. [plane], [diving bell].\n"

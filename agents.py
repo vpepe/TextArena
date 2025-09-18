@@ -1,10 +1,13 @@
 import json
+import re
 import textarena as ta
-from prompts import SAMPLES_PROMPT, REGEN_PROMPT, DECISION_PROMPT, QUESTION_PROMPT, MOVE_PROMPT, CONSISTENCY_PROMPT
+from prompts import BASE_PROMPT, SAMPLES_PROMPT, DECISION_PROMPT, QUESTION_PROMPT, EIG_QUESTION_PROMPT, MOVE_PROMPT, CONSISTENCY_PROMPT
 import numpy as np
 import ast
 
 EPSILON = 0.1  # Noise parameter for answers
+BLANK_HISTORY_PLACEHOLDER = "(no history yet)"
+ANSWER_REGEX = re.compile(r'<answer>(.*?)</answer>', re.IGNORECASE | re.DOTALL)
 
 player_dict = {-1: "GAME", 0: "PLAYER"}
 
@@ -42,159 +45,224 @@ class LLMAgent(ta.agents.OpenRouterAgent):
         # Update game history
         formatted_history = self.format_history(game_history)
 
-        decision = self.decision(formatted_history)
-        
+        # Calculate remaining questions (count player questions, max 20)
+        player_questions = len([entry for entry in game_history if entry["player"] == 0])
+        remaining_questions = max(0, 20 - player_questions)
+
+        decision = self.decision(formatted_history, remaining_questions)
+
         if DecisionType.GUESS == decision:
-            action = self.move(game_history)
+            action = self.move(formatted_history)
         else:
-            action = self.question(game_history)
-        
+            action = self.question(history=formatted_history, remaining_questions=remaining_questions)
+
         return action
     
-    def decision(self, history: str) -> str:
+    def decision(self, history: str, remaining_questions: int, max_retries: int = 10) -> str:
         """Ask if the agent wants to ask more questions or try to guess"""
-        prompt = DECISION_PROMPT.format(history=history)
+        context = BASE_PROMPT.format(history=history)
+        prompt = DECISION_PROMPT.format(context=context, remaining_questions=remaining_questions)
 
-        response = self.openrouter_agent(prompt)
-        # Extract just the decision word, removing any extra text
-        decision = response.strip()
-        
-        if decision in [DecisionType.QUESTION, DecisionType.GUESS]:
-            return decision
+        for _ in range(max_retries):
+            response = self.openrouter_agent(prompt)
+            match = ANSWER_REGEX.search(response)
 
-        assert False, f"Unexpected decision response: {response}"
-    
-    def question(self, history: str) -> str:
+            if match:
+                decision = match.group(1).strip().lower()
+                if decision == "question":
+                    return DecisionType.QUESTION
+                elif decision == "guess":
+                    return DecisionType.GUESS
+        else:
+            raise ValueError(f"Unexpected decision: {response}")
+
+    def question(self, history: str, remaining_questions: int = 20, max_retries: int = 10) -> str:
         """Ask the agent for a question"""
-        prompt = QUESTION_PROMPT.format(history=history)
+        context = BASE_PROMPT.format(history=history)
+        prompt = QUESTION_PROMPT.format(context=context, remaining_questions=remaining_questions)
 
-        return self.openrouter_agent(prompt)
+        for _ in range(max_retries):
+            response = self.openrouter_agent(prompt)
+            match = ANSWER_REGEX.search(response)
+            if match:
+                return match.group(1).strip()
+        else:
+            raise ValueError(f"Unexpected response: {response}")
     
-    def move(self, history: str) -> str:
+    def move(self, history: str, max_retries: int = 10) -> str:
         """Ask the agent for a move (final guess)"""
-        prompt = MOVE_PROMPT.format(history=history)
-        
-        return self.openrouter_agent(prompt)
+        context = BASE_PROMPT.format(history=history)
+        prompt = MOVE_PROMPT.format(context=context)
+
+        for _ in range(max_retries):
+            response = self.openrouter_agent(prompt)
+            # Extract move using regex for <answer></answer> tags
+            match = ANSWER_REGEX.search(response)
+            if match:
+                answer = match.group(1).strip()
+                # Ensure the answer is wrapped in brackets for the game format
+                if not (answer.startswith('[') and answer.endswith(']')):
+                    answer = f"[{answer}]"
+                return answer
+        else:
+            raise ValueError(f"Unexpected move: {response}")
 
 class EIGAgent(LLMAgent):
     def __init__(self, openrouter_agent: ta.agents.OpenRouterAgent, ground_truth_theme: str):
         super().__init__(openrouter_agent=openrouter_agent, ground_truth_theme=ground_truth_theme)
         self.openrouter_agent = openrouter_agent
         self.ground_truth_theme = ground_truth_theme
-        self.samples = {}
-        self._initialize_samples()
 
-    def _initialize_samples(self):
-        """Query the OpenRouterAgent for objects consistent with the theme"""
-        prompt = SAMPLES_PROMPT.format(theme=self.ground_truth_theme)
+    def _generate_fresh_samples(self, history, max_retries: int = 10):
+        """Generate fresh samples consistent with current game history"""
+        formatted_history = history #self.format_history(history)
 
-        response = self.openrouter_agent(prompt)
-        try:
-            # Try to extract JSON from the response
-            objects = json.loads(response)
+        #if not formatted_history.strip():
+        #    formatted_history = BLANK_HISTORY_PLACEHOLDER
+
+        context = BASE_PROMPT.format(history=formatted_history)
+
+        prompt = SAMPLES_PROMPT.format(context=context, theme=self.ground_truth_theme)
+        for _ in range(max_retries):
+            response = self.openrouter_agent(prompt)
+
+            # Extract samples using regex for <answer></answer> tags
+            match = ANSWER_REGEX.search(response)
             
-            # Initialize samples with weight 1
-            for obj in objects:
-                self.samples[obj.lower().strip()] = 1
-                
-            print(f"Initialized EIGAgent with {len(self.samples)} samples for theme '{self.ground_truth_theme}'")
-                
-        except Exception as e:
-            print(f"Error parsing samples: {e}")
-            print(f"Response was: {response}")
+            if match:
+                try:
+                    dict_content = match.group(1).strip()
+                    # Try JSON parsing first
+                    samples_dict = json.loads(dict_content)
+                    # Extract values from dictionary format {1: "coconut", 2: "tomato", ...}
+                    samples = [obj.lower().strip() for obj in samples_dict.values()]
+                    print(f"Generated {len(samples)} fresh samples for EIG calculation")
+                    return samples
+                except json.JSONDecodeError:
+                    # Fallback to ast.literal_eval for Python dict format
+                    try:
+                        samples_dict = ast.literal_eval(dict_content)
+                        samples = [obj.lower().strip() for obj in samples_dict.values()]
+                        print(f"Generated {len(samples)} fresh samples for EIG calculation (via ast)")
+                        return samples
+                    except Exception as e:
+                        print(f"Error parsing fresh samples from tags: {e}")
+                        print(f"Tag content was: {dict_content}")
+                except Exception as e:
+                    print(f"Error parsing fresh samples from tags: {e}")
+                    print(f"Tag content was: {dict_content}")
+        else:
+            raise ValueError(f"Failed to generate fresh samples after {max_retries} attempts")
 
-    def _perform_regeneration(self, history):
-        print("Performing regeneration of samples...")
-        # Remove samples with weight below the threshold
-        formatted_history = self.format_history(history)
+    def _get_consistency_dict(self, question: str, samples: list, history, max_retries: int = 10):
+        formatted_history = history #self.format_history(history)
+        context = BASE_PROMPT.format(history=formatted_history)
+        prompt = CONSISTENCY_PROMPT.format(context=context, question=question, objects=samples)
 
-        objects_to_replace = [obj for obj, weight in self.samples.items() if weight < (EPSILON)]
+        for _ in range(max_retries):
+            response = self.openrouter_agent(prompt)
 
-        # Remove low-weight samples
-        for obj in objects_to_replace:
-            del self.samples[obj]
+            # Extract consistency dict using regex for <answer></answer> tags
+            match = ANSWER_REGEX.search(response)
+            if match:
+                try:
+                    dict_content = match.group(1).strip()
+                    # Try JSON parsing first
+                    consistency_dict = json.loads(dict_content)
+                    return consistency_dict
+                except json.JSONDecodeError:
+                    # Fallback to ast.literal_eval for Python dict format
+                    try:
+                        consistency_dict = ast.literal_eval(dict_content)
+                        return consistency_dict
+                    except Exception as e:
+                        print(f"Error parsing consistency dictionary from tags: {e}")
+                        print(f"Tag content was: {dict_content}")
+                except Exception as e:
+                    print(f"Error parsing consistency dictionary from tags: {e}")
+                    print(f"Tag content was: {dict_content}")
+        else:
+            raise ValueError(f"Failed to generate fresh samples after {max_retries} attempts")
 
-        # Query for new samples
-        prompt = REGEN_PROMPT.format(theme=self.ground_truth_theme, history=formatted_history)
-        response = self.openrouter_agent(prompt)
-        try:
-            new_objects = json.loads(response)
+    def _calculate_eig(self, consistency_dict, samples: list):
+        results = {"yes": 0, "no": 0}
 
-            # Add new objects with initial weight 1
-            for obj in new_objects:
-                obj = obj.lower().strip()
-                if obj not in self.samples:
-                    self.samples[obj] = 1
-
-            for sample, weight in self.samples.items():
-                self.samples[sample] = 1.0
-            print(f"Regenerated {len(objects_to_replace)} samples, now have {len(self.samples)} samples.")
-                
-        except Exception as e:
-            print(f"Error parsing samples during regeneration: {e}")
-            print(f"Response was: {response}")
-
-    def _get_consistency_dict(self, question: str):
-        prompt = CONSISTENCY_PROMPT.format(question=question, objects=list(self.samples.keys()))
-        response = self.openrouter_agent(prompt)
-        try:
-            consistency_dict = ast.literal_eval(response)
-            return consistency_dict
-        except json.JSONDecodeError as e:
-            print(f"Error parsing consistency dictionary: {e}")
-            print(f"Response was: {response}")
-            return {}
-
-    def _calculate_eig(self, consistency_dict):
-        weighted_results = {"yes": 0, "no": 0}
-
-        for object, weight in self.samples.items():
-            if object in consistency_dict:
-                answer = consistency_dict[object]
+        for obj in samples:
+            if obj in consistency_dict:
+                answer = consistency_dict[obj]
                 if answer == "yes":
-                    weighted_results["yes"] += weight
+                    results["yes"] += 1
                 elif answer == "no":
-                    weighted_results["no"] += weight
+                    results["no"] += 1
                 else:
-                    print(f"Unexpected answer '{answer}' for object '{object}'")
+                    print(f"Unexpected answer '{answer}' for object '{obj}'")
                     return float("nan")
 
-        if any(v == 0 for v in weighted_results.values()):
+        if any(v == 0 for v in results.values()):
             return 0
 
-        # Calculate EIG using weighted probabilities
-        total_weight = sum(weighted_results.values())
-        p_true = weighted_results["yes"] / total_weight
+        # Calculate EIG using equal probabilities for all samples
+        total_count = sum(results.values())
+        p_true = results["yes"] / total_count
 
         return binary_entropy(
             EPSILON + ((1 - 2 * EPSILON) * p_true)
         ) - binary_entropy(EPSILON)
 
-    def update_weights(self, question: str, true_answer: str):
-        print("Updating weights on:", question, true_answer)
-        consistency_dict = self._get_consistency_dict(question)
-        for object, weight in self.samples.items():
-            if object in consistency_dict:
-                answer = consistency_dict[object]
-                if answer.lower() == true_answer.lower():
-                    self.samples[object] *= (1 - EPSILON)
-                else:
-                    self.samples[object] *= EPSILON
+    def question(self, history, remaining_questions=20, k=10, max_retries: int = 5) -> str:
+        # Generate fresh samples consistent with current history
+        for _ in range(max_retries):
+            samples = self._generate_fresh_samples(history)
 
-    def question(self, history, k=5):
-        if any([weight < (EPSILON) for weight in self.samples.values()]):
-            self._perform_regeneration(history)
+            # Generate k questions in a single batch
+            formatted_history = history #self.format_history(history)
+            context = BASE_PROMPT.format(history=formatted_history)
 
-        question_list = []
-        for _ in range(k):
-            prompt = QUESTION_PROMPT.format(history=history)
-            question = self.openrouter_agent(prompt)
-            consistency_dict = self._get_consistency_dict(question)
-            eig = self._calculate_eig(consistency_dict)
-            question_list.append((question, eig))
-        
-        print(f"Question EIGs: {question_list}")
+            questions = self._generate_batch_questions(context, remaining_questions, k, max_retries)
 
-        best_question = sorted(question_list, key=lambda x: x[1], reverse=True)[0][0]
+            # Calculate EIG for all questions
+            question_list = []
+            for question in questions:
+                consistency_dict = self._get_consistency_dict(question, samples, history)
+                eig = self._calculate_eig(consistency_dict, samples)
+                question_list.append((question, eig))
 
-        return best_question
+            print(f"Question EIGs: {question_list}")
+
+            best_question = sorted(question_list, key=lambda x: x[1], reverse=True)[0][0]
+            return best_question
+        else:
+            raise ValueError(f"Failed to generate valid questions after {max_retries} attempts")
+
+    def _generate_batch_questions(self, context: str, remaining_questions: int, k: int, max_retries: int) -> list:
+        """Generate k questions in a single batch using EIG_QUESTION_PROMPT"""
+        prompt = EIG_QUESTION_PROMPT.format(context=context, remaining_questions=remaining_questions, k=k)
+
+        for _ in range(max_retries):
+            response = self.openrouter_agent(prompt)
+            match = ANSWER_REGEX.search(response)
+
+            if match:
+                try:
+                    dict_content = match.group(1).strip()
+                    # Try JSON parsing first
+                    questions_dict = json.loads(dict_content)
+                    questions = [q.strip() for q in questions_dict.values()]
+                    print(f"Generated {len(questions)} batch questions")
+                    return questions
+                except json.JSONDecodeError:
+                    # Fallback to ast.literal_eval for Python dict format
+                    try:
+                        questions_dict = ast.literal_eval(dict_content)
+                        questions = [q.strip() for q in questions_dict.values()]
+                        print(f"Generated {len(questions)} batch questions (via ast)")
+                        return questions
+                    except Exception as e:
+                        print(f"Error parsing batch questions from tags: {e}")
+                        print(f"Tag content was: {dict_content}")
+                except Exception as e:
+                    print(f"Error parsing batch questions from tags: {e}")
+                    print(f"Tag content was: {dict_content}")
+
+        print(f"Failed to generate batch questions after {max_retries} attempts")
+        return []

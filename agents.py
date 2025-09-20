@@ -4,6 +4,7 @@ import textarena as ta
 from prompts import BASE_PROMPT, SAMPLES_PROMPT, DECISION_PROMPT, QUESTION_PROMPT, EIG_QUESTION_PROMPT, MOVE_PROMPT, CONSISTENCY_PROMPT
 import numpy as np
 import ast
+from concurrent.futures import ThreadPoolExecutor
 
 EPSILON = 0.1  # Noise parameter for answers
 BLANK_HISTORY_PLACEHOLDER = "(no history yet)"
@@ -51,7 +52,7 @@ class LLMAgent(ta.agents.OpenRouterAgent):
 
         decision = self.decision(formatted_history, remaining_questions)
 
-        if DecisionType.GUESS == decision:
+        if DecisionType.GUESS == decision or remaining_questions == 0:
             action = self.move(formatted_history)
         else:
             action = self.question(history=formatted_history, remaining_questions=remaining_questions)
@@ -73,6 +74,7 @@ class LLMAgent(ta.agents.OpenRouterAgent):
                     return DecisionType.QUESTION
                 elif decision == "guess":
                     return DecisionType.GUESS
+            print(f"Attempt {_} failed to parse decision from response")
         else:
             raise ValueError(f"Unexpected decision: {response}")
 
@@ -86,6 +88,7 @@ class LLMAgent(ta.agents.OpenRouterAgent):
             match = ANSWER_REGEX.search(response)
             if match:
                 return match.group(1).strip()
+            print(f"Attempt {_} failed to parse question from response")
         else:
             raise ValueError(f"Unexpected response: {response}")
     
@@ -104,6 +107,7 @@ class LLMAgent(ta.agents.OpenRouterAgent):
                 if not (answer.startswith('[') and answer.endswith(']')):
                     answer = f"[{answer}]"
                 return answer
+            print(f"Attempt {_} failed to parse move from response")
         else:
             raise ValueError(f"Unexpected move: {response}")
 
@@ -111,20 +115,18 @@ class EIGAgent(LLMAgent):
     def __init__(self, openrouter_agent: ta.agents.OpenRouterAgent, ground_truth_theme: str):
         super().__init__(openrouter_agent=openrouter_agent, ground_truth_theme=ground_truth_theme)
         self.openrouter_agent = openrouter_agent
+        self.sampling_agent = ta.agents.OpenRouterAgent(model_name="openai/gpt-5")  # Dedicated GPT-5 for sampling
         self.ground_truth_theme = ground_truth_theme
 
     def _generate_fresh_samples(self, history, max_retries: int = 10):
         """Generate fresh samples consistent with current game history"""
-        formatted_history = history #self.format_history(history)
-
-        #if not formatted_history.strip():
-        #    formatted_history = BLANK_HISTORY_PLACEHOLDER
+        formatted_history = history
 
         context = BASE_PROMPT.format(history=formatted_history)
 
         prompt = SAMPLES_PROMPT.format(context=context, theme=self.ground_truth_theme)
         for _ in range(max_retries):
-            response = self.openrouter_agent(prompt)
+            response = self.sampling_agent(prompt)
 
             # Extract samples using regex for <answer></answer> tags
             match = ANSWER_REGEX.search(response)
@@ -137,6 +139,7 @@ class EIGAgent(LLMAgent):
                     # Extract values from dictionary format {1: "coconut", 2: "tomato", ...}
                     samples = [obj.lower().strip() for obj in samples_dict.values()]
                     print(f"Generated {len(samples)} fresh samples for EIG calculation")
+                    print(f"Sampled objects: {samples}")
                     return samples
                 except json.JSONDecodeError:
                     # Fallback to ast.literal_eval for Python dict format
@@ -151,6 +154,7 @@ class EIGAgent(LLMAgent):
                 except Exception as e:
                     print(f"Error parsing fresh samples from tags: {e}")
                     print(f"Tag content was: {dict_content}")
+            print(f"Sampling attempt {_} failed to parse samples from response")
         else:
             raise ValueError(f"Failed to generate fresh samples after {max_retries} attempts")
 
@@ -160,7 +164,7 @@ class EIGAgent(LLMAgent):
         prompt = CONSISTENCY_PROMPT.format(context=context, question=question, objects=samples)
 
         for _ in range(max_retries):
-            response = self.openrouter_agent(prompt)
+            response = self.sampling_agent(prompt)
 
             # Extract consistency dict using regex for <answer></answer> tags
             match = ANSWER_REGEX.search(response)
@@ -181,6 +185,7 @@ class EIGAgent(LLMAgent):
                 except Exception as e:
                     print(f"Error parsing consistency dictionary from tags: {e}")
                     print(f"Tag content was: {dict_content}")
+            print(f"Consistency attempt {_} failed to parse samples from response")
         else:
             raise ValueError(f"Failed to generate fresh samples after {max_retries} attempts")
 
@@ -222,10 +227,14 @@ class EIGAgent(LLMAgent):
 
             # Calculate EIG for all questions
             question_list = []
-            for question in questions:
+            def process_question(question):
+                print(f"Calculating EIG for question: {question}")
                 consistency_dict = self._get_consistency_dict(question, samples, history)
                 eig = self._calculate_eig(consistency_dict, samples)
-                question_list.append((question, eig))
+                return (question, eig)
+
+            with ThreadPoolExecutor(max_workers=max(len(questions), 4)) as executor:
+                question_list = list(executor.map(process_question, questions))
 
             print(f"Question EIGs: {question_list}")
 
@@ -263,6 +272,7 @@ class EIGAgent(LLMAgent):
                 except Exception as e:
                     print(f"Error parsing batch questions from tags: {e}")
                     print(f"Tag content was: {dict_content}")
+            print(f"Attempt {_} failed to make batch responses")
 
         print(f"Failed to generate batch questions after {max_retries} attempts")
         return []

@@ -16,7 +16,7 @@ DECISION_PROMPT = """
 
 Your task is to choose whether you'd like to ask another question about the word to gather more information about it, or, if you feel you already have enough information, to make your guess for the final answer.
 
-You have {remaining_questions} questions left, including this one.
+You have {remaining_questions} questions left, including this one. Be very careful about guessing early, since there is no cost to asking questions, and if you guess wrong, you lose the game.
 
 Please think about your decision step by step. When you have come up with a final answer, respond with your decision wrapped in <answer></answer> tags: <answer>question</answer> if you would like to ask a question or <answer>guess</answer> if you would like to make your guess. Do not give the actual question or guess yet.
 """
@@ -24,7 +24,7 @@ Please think about your decision step by step. When you have come up with a fina
 QUESTION_PROMPT = """
 {context}
 
-Your task is to ask a single question that will help you gain the most information possible about the secret word. You can ask any question, but is must be answerable with a Boolean answer (yes/no).
+Your task is to ask a single question that will help you gain the most information possible about the secret word. You can ask any question, but is must be answerable with a Boolean answer (yes/no). Make sure your questions are clear, specific and different from ones you have asked previously, to avoid pigeonholing a potentially wrong answer too quickly.
 
 You have {remaining_questions} questions left, including this one.
 
@@ -55,17 +55,29 @@ Please think about your answer step by step. When you have come up with a final 
 SAMPLES_PROMPT = """
 {context}
 
-List 100 different objects, items, or concepts that would be appropriate for the theme/category "{theme}".
+List 100 different objects, items, or concepts that fit the question-answer history given thus far.
 
-Objects should be theme-appropriate, diverse, and 1-2 words each. They can be any word that fits the theme.
-
-They must also be consistent with the history of the game as given above. For example, if the history includes a question "Is it a living thing?" with answer "no", then none of the objects can be living things. 
+For example, if the history includes a question "Is it a living thing?" with answer "no", then none of the objects can be living things. 
 
 Return your answer as a JSON dictionary with numbered keys, wrapped in <answer></answer> tags like this:
     <answer>{{"1": "object1", "2": "object2", "3": "object3", "4": "object4", "5": "object5"}}</answer>
 
 IMPORTANT: Use proper JSON format with double quotes around both keys and values.
 """
+
+
+# SAMPLES_PROMPT = """
+# {context}
+
+# List 100 different objects, items, or concepts that would be appropriate for the theme/category "{theme}". You should list as many as possible, but take care to make sure they all fit the question-answer history given thus far.
+
+# For example, if the history includes a question "Is it a living thing?" with answer "no", then none of the objects can be living things. 
+
+# Return your answer as a JSON dictionary with numbered keys, wrapped in <answer></answer> tags like this:
+#     <answer>{{"1": "object1", "2": "object2", "3": "object3", "4": "object4", "5": "object5"}}</answer>
+
+# IMPORTANT: Use proper JSON format with double quotes around both keys and values.
+# """
 
 CONSISTENCY_PROMPT = """
 {context}

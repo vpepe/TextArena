@@ -210,17 +210,17 @@ def run_parallel_experiments(models, gamemaster_model="openai/gpt-4o", agent_typ
 if __name__ == "__main__":
     # Example: Run parallel experiments with multiple models
     models_to_test = [
-        "meta-llama/llama-4-scout",
         "openai/gpt-4o",
+        #"meta-llama/llama-4-scout",
     ]
 
     # Run experiments with both agent types
     results = run_parallel_experiments(
         models=models_to_test,
         gamemaster_model="openai/gpt-5",
-        agent_types=["LLM", "EIG"],
-        games_per_model=120,  # 3 games per model per agent type
-        max_workers=128      # 8 concurrent threads
+        agent_types=["EIG"],
+        games_per_model=1,  # 80 games per model per agent type
+        max_workers=128      # 128 concurrent threads
     )
 
     # Print some summary statistics

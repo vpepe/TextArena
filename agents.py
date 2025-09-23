@@ -1,7 +1,7 @@
 import json
 import re
 import textarena as ta
-from prompts import BASE_PROMPT, SAMPLES_PROMPT, DECISION_PROMPT, QUESTION_PROMPT, EIG_QUESTION_PROMPT, MOVE_PROMPT, CONSISTENCY_PROMPT
+from prompts import BASE_PROMPT, DECISION_PROMPT, QUESTION_PROMPT, EIG_QUESTION_PROMPT, MOVE_PROMPT, CONSISTENCY_PROMPT
 import numpy as np
 import ast
 from concurrent.futures import ThreadPoolExecutor
@@ -29,10 +29,14 @@ def binary_entropy(p: float) -> float:
         return -p * np.log2(p) - (1 - p) * np.log2(1 - p)
 
 class LLMAgent(ta.agents.OpenRouterAgent):
-    def __init__(self, openrouter_agent: ta.agents.OpenRouterAgent, ground_truth_theme: str):
+    def __init__(self, openrouter_agent: ta.agents.OpenRouterAgent):
         super().__init__(model_name=openrouter_agent.model_name)
         self.openrouter_agent = openrouter_agent
-        self.ground_truth_theme = ground_truth_theme
+
+        with open('/home/ubuntu/new_battleship/20_questions/guess_who/TextArena/textarena/envs/GuessWho/characters.json', 'r') as f:
+            characters = json.load(f)
+
+        self.characters = characters
 
     def format_history(self, history: list) -> str:
         serialized_history = ""
@@ -48,8 +52,9 @@ class LLMAgent(ta.agents.OpenRouterAgent):
 
         # Calculate remaining questions (count player questions, max 20)
         player_questions = len([entry for entry in game_history if entry["player"] == 0])
-        remaining_questions = max(0, 20 - player_questions)
+        remaining_questions = max(0, 10 - player_questions)
 
+        print(remaining_questions, player_questions)
         decision = self.decision(formatted_history, remaining_questions)
 
         if DecisionType.GUESS == decision or remaining_questions == 0:
@@ -61,7 +66,7 @@ class LLMAgent(ta.agents.OpenRouterAgent):
     
     def decision(self, history: str, remaining_questions: int, max_retries: int = 10) -> str:
         """Ask if the agent wants to ask more questions or try to guess"""
-        context = BASE_PROMPT.format(history=history)
+        context = BASE_PROMPT.format(history=history, characters=self.characters)
         prompt = DECISION_PROMPT.format(context=context, remaining_questions=remaining_questions)
 
         for _ in range(max_retries):
@@ -78,9 +83,9 @@ class LLMAgent(ta.agents.OpenRouterAgent):
         else:
             raise ValueError(f"Unexpected decision: {response}")
 
-    def question(self, history: str, remaining_questions: int = 20, max_retries: int = 10) -> str:
+    def question(self, history: str, remaining_questions: int = 10, max_retries: int = 10) -> str:
         """Ask the agent for a question"""
-        context = BASE_PROMPT.format(history=history)
+        context = BASE_PROMPT.format(history=history, characters=self.characters)
         prompt = QUESTION_PROMPT.format(context=context, remaining_questions=remaining_questions)
 
         for _ in range(max_retries):
@@ -94,7 +99,8 @@ class LLMAgent(ta.agents.OpenRouterAgent):
     
     def move(self, history: str, max_retries: int = 10) -> str:
         """Ask the agent for a move (final guess)"""
-        context = BASE_PROMPT.format(history=history)
+        context = BASE_PROMPT.format(history=history, characters=self.characters)
+
         prompt = MOVE_PROMPT.format(context=context)
 
         for _ in range(max_retries):
@@ -112,136 +118,114 @@ class LLMAgent(ta.agents.OpenRouterAgent):
             raise ValueError(f"Unexpected move: {response}")
 
 class EIGAgent(LLMAgent):
-    def __init__(self, openrouter_agent: ta.agents.OpenRouterAgent, ground_truth_theme: str):
-        super().__init__(openrouter_agent=openrouter_agent, ground_truth_theme=ground_truth_theme)
+    def __init__(self, openrouter_agent: ta.agents.OpenRouterAgent, k: int = 10):
+        super().__init__(openrouter_agent=openrouter_agent)
         self.openrouter_agent = openrouter_agent
         self.sampling_agent = ta.agents.OpenRouterAgent(model_name="openai/gpt-5")  # Dedicated GPT-5 for sampling
-        self.ground_truth_theme = ground_truth_theme
+        self.k = k
+        self.constraints = []
+        self.eigs = []
 
-    def _generate_fresh_samples(self, history, max_retries: int = 10):
-        """Generate fresh samples consistent with current game history"""
-        formatted_history = history
+    def decision(self, history: str, remaining_questions: int, max_retries: int = 10) -> str:
+        """Ask if the agent wants to ask more questions or try to guess"""
+        if remaining_questions == 0:
+            return DecisionType.GUESS
+        else:
+            return DecisionType.QUESTION
+        # if len(self.eigs) == 0 or self.eigs[-1] > 0.1:
+        #     return DecisionType.QUESTION  # Always ask at least one question
+        # else:
+        #     return DecisionType.GUESS  # Guess if EIG is low
 
-        context = BASE_PROMPT.format(history=formatted_history)
-
-        prompt = SAMPLES_PROMPT.format(context=context, theme=self.ground_truth_theme)
-        for _ in range(max_retries):
-            response = self.sampling_agent(prompt)
-
-            # Extract samples using regex for <answer></answer> tags
+    def get_constraints_from_question(self, question: str, max_retries: int = 5) -> dict:
+        for attempt in range(max_retries):
+            context = CONSISTENCY_PROMPT.format(question=question, characters=self.characters)
+            response = self.sampling_agent(context)
             match = ANSWER_REGEX.search(response)
-            
+
             if match:
                 try:
                     dict_content = match.group(1).strip()
-                    # Try JSON parsing first
-                    samples_dict = json.loads(dict_content)
-                    # Extract values from dictionary format {1: "coconut", 2: "tomato", ...}
-                    samples = [obj.lower().strip() for obj in samples_dict.values()]
-                    print(f"Generated {len(samples)} fresh samples for EIG calculation")
-                    print(f"Sampled objects: {samples}")
-                    return samples
-                except json.JSONDecodeError:
-                    # Fallback to ast.literal_eval for Python dict format
-                    try:
-                        samples_dict = ast.literal_eval(dict_content)
-                        samples = [obj.lower().strip() for obj in samples_dict.values()]
-                        print(f"Generated {len(samples)} fresh samples for EIG calculation (via ast)")
-                        return samples
-                    except Exception as e:
-                        print(f"Error parsing fresh samples from tags: {e}")
-                        print(f"Tag content was: {dict_content}")
+                    constraints = json.loads(dict_content)
+                    print(f"Extracted constraints: {constraints}")
+                    if set(constraints.keys()) == set(char['name'] for char in self.characters):
+                        return constraints
+                    else:
+                        print(f"Constraints keys do not match character names")
+                        continue
                 except Exception as e:
-                    print(f"Error parsing fresh samples from tags: {e}")
+                    print(f"Error parsing constraints from tags: {e}")
                     print(f"Tag content was: {dict_content}")
-            print(f"Sampling attempt {_} failed to parse samples from response")
-        else:
-            raise ValueError(f"Failed to generate fresh samples after {max_retries} attempts")
+            print(f"Attempt {attempt + 1} failed to extract constraints")
 
-    def _get_consistency_dict(self, question: str, samples: list, history, max_retries: int = 10):
-        formatted_history = history #self.format_history(history)
-        context = BASE_PROMPT.format(history=formatted_history)
-        prompt = CONSISTENCY_PROMPT.format(context=context, question=question, objects=samples)
+    def calculate_eig_for_question(self, candidate_constraint: dict) -> float:
+        character_weights = {char['name']: 1.0 for char in self.characters}
+        eig_weights = {"yes": 0.0, "no": 0.0}
 
-        for _ in range(max_retries):
-            response = self.sampling_agent(prompt)
+        for constraint in self.constraints:
+            for char_name, answer in constraint.items():
+                if answer == "no":
+                    character_weights[char_name] *= EPSILON
+                elif answer == "yes":
+                    character_weights[char_name] *= (1 - EPSILON)
 
-            # Extract consistency dict using regex for <answer></answer> tags
-            match = ANSWER_REGEX.search(response)
-            if match:
-                try:
-                    dict_content = match.group(1).strip()
-                    # Try JSON parsing first
-                    consistency_dict = json.loads(dict_content)
-                    return consistency_dict
-                except json.JSONDecodeError:
-                    # Fallback to ast.literal_eval for Python dict format
-                    try:
-                        consistency_dict = ast.literal_eval(dict_content)
-                        return consistency_dict
-                    except Exception as e:
-                        print(f"Error parsing consistency dictionary from tags: {e}")
-                        print(f"Tag content was: {dict_content}")
-                except Exception as e:
-                    print(f"Error parsing consistency dictionary from tags: {e}")
-                    print(f"Tag content was: {dict_content}")
-            print(f"Consistency attempt {_} failed to parse samples from response")
-        else:
-            raise ValueError(f"Failed to generate fresh samples after {max_retries} attempts")
+        for char_name, answer in candidate_constraint.items():
+            eig_weights[answer] += character_weights[char_name]
 
-    def _calculate_eig(self, consistency_dict, samples: list):
-        results = {"yes": 0, "no": 0}
+        p_yes = eig_weights["yes"] / (eig_weights["no"] + eig_weights["yes"])
 
-        for obj in samples:
-            if obj in consistency_dict:
-                answer = consistency_dict[obj]
-                if answer == "yes":
-                    results["yes"] += 1
-                elif answer == "no":
-                    results["no"] += 1
-                else:
-                    print(f"Unexpected answer '{answer}' for object '{obj}'")
-                    return float("nan")
+        return binary_entropy(EPSILON + ((1 - (2*EPSILON))*p_yes)) - binary_entropy(EPSILON) 
 
-        if any(v == 0 for v in results.values()):
-            return 0
 
-        # Calculate EIG using equal probabilities for all samples
-        total_count = sum(results.values())
-        p_true = results["yes"] / total_count
 
-        return binary_entropy(
-            EPSILON + ((1 - 2 * EPSILON) * p_true)
-        ) - binary_entropy(EPSILON)
-
-    def question(self, history, remaining_questions=20, k=10, max_retries: int = 5) -> str:
-        # Generate fresh samples consistent with current history
-        for _ in range(max_retries):
-            samples = self._generate_fresh_samples(history)
-
+    def question(self, history, remaining_questions=40, max_retries: int = 5) -> str:
+        for attempt in range(max_retries):
             # Generate k questions in a single batch
-            formatted_history = history #self.format_history(history)
-            context = BASE_PROMPT.format(history=formatted_history)
+            context = BASE_PROMPT.format(history=history, characters=self.characters)
+            questions = self._generate_batch_questions(context, remaining_questions, self.k, max_retries)
 
-            questions = self._generate_batch_questions(context, remaining_questions, k, max_retries)
+            if not questions:
+                print(f"Failed to generate questions on attempt {attempt + 1}")
+                continue
 
             # Calculate EIG for all questions
-            question_list = []
-            def process_question(question):
-                print(f"Calculating EIG for question: {question}")
-                consistency_dict = self._get_consistency_dict(question, samples, history)
-                eig = self._calculate_eig(consistency_dict, samples)
-                return (question, eig)
+            question_eigs = []
 
-            with ThreadPoolExecutor(max_workers=max(len(questions), 4)) as executor:
-                question_list = list(executor.map(process_question, questions))
+            # Helper function to calculate EIG for a single question
+            def _process_question(question):
+                constraints = self.get_constraints_from_question(question)
+                if not constraints:
+                    return None
 
-            print(f"Question EIGs: {question_list}")
+                print(f"Calculating EIG for: {question}")
+                eig = self.calculate_eig_for_question(constraints)
+                print(f"EIG: {eig:.4f}")
 
-            best_question = sorted(question_list, key=lambda x: x[1], reverse=True)[0][0]
-            return best_question
-        else:
-            raise ValueError(f"Failed to generate valid questions after {max_retries} attempts")
+                return {
+                    'question': question,
+                    'constraints': constraints,
+                    'eig': eig
+                }
+
+            # Process questions in parallel
+            with ThreadPoolExecutor() as executor:
+                # Map each question to a future
+                future_results = list(executor.map(_process_question, questions))
+
+                question_eigs = [result for result in future_results if result]
+
+            if question_eigs:
+                # Sort by EIG and return the best question
+                question_eigs.sort(key=lambda x: x['eig'], reverse=True)
+                best_question_info = question_eigs[0]
+                best_question = best_question_info['question']
+                best_eig = best_question_info['eig']
+                print(f"Selected question with EIG {best_eig:.4f}: {best_question}")
+                self.constraints.append(best_question_info['constraints'])
+                self.eigs.append(best_eig)
+                return best_question
+            
+            print(f"Attempt {attempt + 1} failed to compute EIG for any question")
 
     def _generate_batch_questions(self, context: str, remaining_questions: int, k: int, max_retries: int) -> list:
         """Generate k questions in a single batch using EIG_QUESTION_PROMPT"""
@@ -259,16 +243,6 @@ class EIGAgent(LLMAgent):
                     questions = [q.strip() for q in questions_dict.values()]
                     print(f"Generated {len(questions)} batch questions")
                     return questions
-                except json.JSONDecodeError:
-                    # Fallback to ast.literal_eval for Python dict format
-                    try:
-                        questions_dict = ast.literal_eval(dict_content)
-                        questions = [q.strip() for q in questions_dict.values()]
-                        print(f"Generated {len(questions)} batch questions (via ast)")
-                        return questions
-                    except Exception as e:
-                        print(f"Error parsing batch questions from tags: {e}")
-                        print(f"Tag content was: {dict_content}")
                 except Exception as e:
                     print(f"Error parsing batch questions from tags: {e}")
                     print(f"Tag content was: {dict_content}")

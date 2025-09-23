@@ -27,7 +27,7 @@ def run_single_game(model_name, gamemaster_model, agent_type, game_id, run_id):
         base_agent = ta.agents.OpenRouterAgent(model_name=model_name)
 
         # Initialize the 20 Questions environment
-        env = ta.make(env_id="TwentyQuestions-v0-raw")
+        env = ta.make(env_id="GuessWho-v0-raw")
         # Change the gamemaster model (before reset)
         env.gamemaster = ta.agents.OpenRouterAgent(model_name=gamemaster_model)
 
@@ -35,14 +35,13 @@ def run_single_game(model_name, gamemaster_model, agent_type, game_id, run_id):
         env.reset(num_players=1)
 
         # Extract ground truth after reset
-        ground_truth_word = env.game_word
-        ground_truth_theme = env.game_theme
+        target_character = env.target_character['name']
 
         # Initialize agent based on type
         if agent_type == "LLM":
-            agent = LLMAgent(base_agent, ground_truth_theme)
+            agent = EIGAgent(base_agent, k=1)
         else:
-            agent = EIGAgent(base_agent, ground_truth_theme)
+            agent = EIGAgent(base_agent, k=10)
 
         done = False
         turn_count = 0
@@ -81,8 +80,7 @@ def run_single_game(model_name, gamemaster_model, agent_type, game_id, run_id):
             'gamemaster_model': gamemaster_model,
             'agent_type': agent_type,
             'observations': all_observations,
-            'ground_truth_word': ground_truth_word,
-            'ground_truth_theme': ground_truth_theme,
+            'character': target_character,
             'rewards': rewards,
             'game_info': game_info,
             'turn_count': turn_count,
@@ -218,8 +216,8 @@ if __name__ == "__main__":
     results = run_parallel_experiments(
         models=models_to_test,
         gamemaster_model="openai/gpt-5",
-        agent_types=["EIG"],
-        games_per_model=1,  # 80 games per model per agent type
+        agent_types=["LLM", "EIG"],
+        games_per_model=40,  # 80 games per model per agent type
         max_workers=128      # 128 concurrent threads
     )
 

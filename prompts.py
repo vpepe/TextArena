@@ -1,13 +1,21 @@
 # Define ground_truth_theme here for this cell to work independently
 
 BASE_PROMPT = """
-You are playing 20 Questions. Your goal is to gather enough information to be able to guess a secret word that goes with a given theme by asking at most 20 yes/no questions.
+You are playing Guess Who. The other player has selected a character from the list below, and your goal is to guess which character they have selected by asking yes-or-no questions about the character's traits. Your goal is to identify the character in as few questions as possible.
 
-The secret word can be one or two words long, and can be any word of concept that fits the theme. You can guess at any time, but if you guess wrong, you lose the game. After 20 questions, you will be forced to make a final guess.
+You have 40 questions to ask, and you can make your guess at any time. If you guess correctly, you win the game. If you run out of questions or guess incorrectly, you lose the game.
 
 Given this game history:
 
+<history>
 {history}
+</history>
+
+This is the list of characters you can ask questions about:
+
+<characters>
+{characters}
+</characters>
 """
 
 
@@ -28,17 +36,17 @@ Your task is to ask a single question that will help you gain the most informati
 
 You have {remaining_questions} questions left, including this one.
 
-Please think about your answer step by step. When you have come up with your question, please wrap it in <answer></answer> tags: e.g. <answer>Is it a living thing?</answer>
+Please think about your answer step by step. When you have come up with your question, please wrap it in <answer></answer> tags: e.g. <answer>Is the character male?</answer>
 """
 
 EIG_QUESTION_PROMPT = """
 {context}
 
-Your task is to generate {k} questions that will help you gain the most information possible about the secret word. Each question must be answerable with a Boolean answer (yes/no).
+Your task is to generate {k} question(s) that will help you gain the most information possible about the secret word. Each question must be answerable with a Boolean answer (yes/no).
 
-You have {remaining_questions} batches of {k} questions left.
+You have {remaining_questions} batches of {k} question(s) left.
 
-Please think about your answer step by step. When you have come up with your question, please return your questions as a JSON dictionary with numbered keys, wrapped in <answer></answer> tags like this: <answer>{{"1": "Is it a living thing?", "2": "Is it larger than a car?", "3": "Is it made of metal?"}}</answer>
+Please think about your answer step by step. When you have come up with your question, please return your question(s) as a JSON dictionary with numbered keys, wrapped in <answer></answer> tags like this: <answer>{{"1": "Is the character male?", "2": "Do they have a mustache?", "3": "Do they have a hat?"}}</answer>
 
 IMPORTANT: Use proper JSON format with double quotes around both keys and values.
 """
@@ -46,52 +54,28 @@ IMPORTANT: Use proper JSON format with double quotes around both keys and values
 MOVE_PROMPT = """
 {context}
 
-Your task is to make your one and only guess for the secret word. Make sure you consider the context of the theme and all previous questions and answers. 
+Your task is to make your one and only guess for the character. Make sure you consider the context of the theme and all previous questions and answers. 
 
-Please think about your answer step by step. When you have come up with a final answer, respond with your guess wrapped in <answer></answer> tags, and optionally square brackets, e.g. <answer>elephant</answer> or <answer>[elephant]</answer>"""
+Guess from the list above.
+
+Please think about your answer step by step. When you have come up with a final answer, respond with your guess wrapped in <answer></answer> tags, and optionally square brackets, e.g. <answer>Mike</answer> or <answer>[Mike]</answer>"""
 
 #---------------------------------------------
 
-SAMPLES_PROMPT = """
-{context}
-
-List 100 different objects, items, or concepts that fit the question-answer history given thus far.
-
-For example, if the history includes a question "Is it a living thing?" with answer "no", then none of the objects can be living things. 
-
-Return your answer as a JSON dictionary with numbered keys, wrapped in <answer></answer> tags like this:
-    <answer>{{"1": "object1", "2": "object2", "3": "object3", "4": "object4", "5": "object5"}}</answer>
-
-IMPORTANT: Use proper JSON format with double quotes around both keys and values.
-"""
-
-
-# SAMPLES_PROMPT = """
-# {context}
-
-# List 100 different objects, items, or concepts that would be appropriate for the theme/category "{theme}". You should list as many as possible, but take care to make sure they all fit the question-answer history given thus far.
-
-# For example, if the history includes a question "Is it a living thing?" with answer "no", then none of the objects can be living things. 
-
-# Return your answer as a JSON dictionary with numbered keys, wrapped in <answer></answer> tags like this:
-#     <answer>{{"1": "object1", "2": "object2", "3": "object3", "4": "object4", "5": "object5"}}</answer>
-
-# IMPORTANT: Use proper JSON format with double quotes around both keys and values.
-# """
-
 CONSISTENCY_PROMPT = """
-{context}
+You are playing Guess Who. Your task is to determine which characters from the list below are consistent with a "yes" answer to the most recent question asked, and which are consistent with a "no" answer.
 
-Here is the most recent question and a list of objects that might be the secret word:
+The most recent question is "{question}".
 
-Question: "{question}"
-Possible objects: {objects}
+Given the following characters:
 
-Your task is to determine which objects are consistent with a "yes" answer to the question, and which are consistent with a "no" answer.
+<characters>
+{characters}
+</characters>
 
-Respond with a JSON dictionary wrapped in <answer></answer> tags where the keys are the objects and the values are either "yes" or "no".
+Respond with a JSON dictionary wrapped in <answer></answer> tags where the keys are the characters and the values are either "yes", if the character satisfies the constraint given in the question, or "no" if they do not.
 
-<answer>{{"object1": "yes", "object2": "no", "object3": "yes"}}</answer>
+<answer>{{"character1": "yes", "character2": "no", "character3": "yes"}}</answer>
 
 IMPORTANT: Use proper JSON format with double quotes around both keys and values.
 

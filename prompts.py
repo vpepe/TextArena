@@ -1,9 +1,9 @@
 # Define ground_truth_theme here for this cell to work independently
 
 BASE_PROMPT = """
-You are playing Guess Who. The other player has selected a character from the list below, and your goal is to guess which character they have selected by asking yes-or-no questions about the character's traits. Your goal is to identify the character in as few questions as possible.
+You are playing Guess Who. The other player has selected a character from the list below, and your goal is to guess which character they have selected by asking yes-or-no questions about the character's traits.
 
-You have 40 questions to ask, and you can make your guess at any time. If you guess correctly, you win the game. If you run out of questions or guess incorrectly, you lose the game.
+You can ask 8 questions in total, and you have to make your guess after asking all of them. If you guess correctly, you win the game. If you guess incorrectly, you lose the game.
 
 Given this game history:
 
@@ -44,7 +44,7 @@ EIG_QUESTION_PROMPT = """
 
 Your task is to generate {k} question(s) that will help you gain the most information possible about the secret word. Each question must be answerable with a Boolean answer (yes/no).
 
-You have {remaining_questions} batches of {k} question(s) left.
+You have {remaining_questions} batches of {k} question(s) left, including this one.
 
 Please think about your answer step by step. When you have come up with your question, please return your question(s) as a JSON dictionary with numbered keys, wrapped in <answer></answer> tags like this: <answer>{{"1": "Is the character male?", "2": "Do they have a mustache?", "3": "Do they have a hat?"}}</answer>
 
@@ -54,7 +54,7 @@ IMPORTANT: Use proper JSON format with double quotes around both keys and values
 MOVE_PROMPT = """
 {context}
 
-Your task is to make your one and only guess for the character. Make sure you consider the context of the theme and all previous questions and answers. 
+Your task is to make your one and only guess about the character. Make sure you consider the context of the theme and all previous questions and answers. 
 
 Guess from the list above.
 
@@ -63,7 +63,7 @@ Please think about your answer step by step. When you have come up with a final 
 #---------------------------------------------
 
 CONSISTENCY_PROMPT = """
-You are playing Guess Who. Your task is to determine which characters from the list below are consistent with a "yes" answer to the most recent question asked, and which are consistent with a "no" answer.
+You are playing Guess Who. Your task is to determine which characters from the list below are consistent with the constraint implied by the question.
 
 The most recent question is "{question}".
 

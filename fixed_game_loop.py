@@ -1,7 +1,7 @@
 import textarena as ta
 from dotenv import load_dotenv
 import os
-from agents import LLMAgent, EIGAgent
+from agents import LLMAgent, EIGAgent, QBayesAgent, MBayesAgent
 import json
 import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -39,9 +39,13 @@ def run_single_game(model_name, gamemaster_model, agent_type, game_id, run_id):
 
         # Initialize agent based on type
         if agent_type == "LLM":
-            agent = EIGAgent(base_agent, k=1)
-        else:
+            agent = LLMAgent(base_agent)
+        elif agent_type == "EIG":
             agent = EIGAgent(base_agent, k=10)
+        elif agent_type == "QBayes":
+            agent = QBayesAgent(base_agent, k=10)
+        elif agent_type == "MBayes":
+            agent = MBayesAgent(base_agent, k=1)
 
         done = False
         turn_count = 0
@@ -209,15 +213,16 @@ if __name__ == "__main__":
     # Example: Run parallel experiments with multiple models
     models_to_test = [
         "openai/gpt-4o",
-        #"meta-llama/llama-4-scout",
+        "meta-llama/llama-4-scout",
+        #"openai/gpt-5"
     ]
 
     # Run experiments with both agent types
     results = run_parallel_experiments(
         models=models_to_test,
         gamemaster_model="openai/gpt-5",
-        agent_types=["LLM", "EIG"],
-        games_per_model=40,  # 80 games per model per agent type
+        agent_types=["LLM", "EIG", "QBayes", "MBayes"],
+        games_per_model=30,  # 80 games per model per agent type
         max_workers=128      # 128 concurrent threads
     )
 

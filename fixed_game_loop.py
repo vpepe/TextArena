@@ -33,7 +33,7 @@ def run_single_game(model_name, gamemaster_model, agent_type, game_id, run_id):
         env.gamemaster = ta.agents.OpenRouterAgent(model_name=gamemaster_model)
 
         # Reset the environment for single player
-        env.reset(num_players=1)
+        env.reset(num_players=1, game_theme="iclr")
 
         # Extract ground truth after reset
         ground_truth_word = env.game_word

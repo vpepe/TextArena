@@ -65,25 +65,23 @@ class TwentyQuestionsEnv(ta.Env):
         else: self.gamemaster_history.append((action, "I'm sorry, I don't understand. Please try asking again."))  # Log fallback response
         return response
 
-    def reset(self, num_players: int, seed: Optional[int] = None):
+    def reset(self, num_players: int, game_theme: Optional[str] = None, seed: Optional[int] = None):
         self.state = ta.SinglePlayerState(num_players=num_players, seed=seed, max_turns=self.max_turns)
         ## load the game word
-        self.game_theme = random.choice(list(self.word_list.keys()))
+        if game_theme is None:
+            self.game_theme = random.choice(list(self.word_list.keys()))
+        else:
+            self.game_theme = game_theme
+
         self.game_word = random.choice(self.word_list[self.game_theme])
-        ## update the gamemaster
-        # self.gamemaster_context = (
-        #     f"You are the gamemaster for the game of '20 Questions'.\n"
-        #     f"You will provide responses to the players' questions that guides them into guessing the target word: {self.game_word}\n"
-        # )
 
         self.gamemaster_context = (
-            f"You are playing 20 Questions. You are thinking of a word, '{self.game_word}', , and you have told the other player that this word is related to the theme of '{self.game_theme}'. \n Your task is to provide honest answers to the other player's yes-or-no questions to guide them towards finding the word you are thinking of (you both win if the other player guesses the word, and you both lose if they do not). \n Be sure to provide answers that are truthful and helpful, which may include some nuance and inference about what the other player may be thinking: for example, if the word is 'pharmacist', and the question is 'Does the profession deal with numbers or financial data?', while it is technically true that pharmacists deal with numbers, the best answer is 'No', since the question is likely trying to determine if the word is related to finance or accounting. You should only respond with one of the following options: {', '.join(self.gamemaster_options)}. \n Please think about your answer step-by-step before responding, and wrap your final answer in <answer></answer> tags, e.g. <answer>Yes</answer>."
+            f"You are playing 20 Questions. You are thinking of a word, '{self.game_word}'. \n Your task is to provide honest answers to the other player's yes-or-no questions to guide them towards finding the word you are thinking of (you both win if the other player guesses the word, and you both lose if they do not). \n Be sure to provide answers that are truthful and helpful, which may include some nuance and inference about what the other player may be thinking: for example, if the word is 'pharmacist', and the question is 'Does the profession deal with numbers or financial data?', while it is technically true that pharmacists deal with numbers, the best answer is 'No', since the question is likely trying to determine if the word is related to finance or accounting. You should only respond with one of the following options: {', '.join(self.gamemaster_options)}. \n Please think about your answer step-by-step before responding, and wrap your final answer in <answer></answer> tags, e.g. <answer>Yes</answer>."
         )
         self.state.reset(game_state={"target_word": self.game_word, "rendered_text": f"Game word: {self.game_word}"}, player_prompt_function=self._prompt)
     
     def _prompt(self, player_id: int, game_state: Dict[int, Any]) -> str:
-        return f"The game has begun. The word is related to {self.game_theme}."
-        # return (
+        return f"The game has begun."
         #     f"You are Player {player_id}. You are playing 20 Questions ).\n"
         #     f"The gamemaster has chosen a word that can be one or two words. You have to guess this word by asking yes-or-no questions. This word is related to {self.game_theme}.\n"
         #     "The game will last for a maximum of 20 questions. After 20 questions, the gamemaster will prompt you to make a guess.\n"

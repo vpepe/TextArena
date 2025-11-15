@@ -34,6 +34,11 @@ class LLMAgent(ta.agents.OpenRouterAgent):
         self.openrouter_agent = openrouter_agent
         self.ground_truth_theme = ground_truth_theme
 
+        with open('/home/ubuntu/new_battleship/20_questions/TextArena/textarena/envs/TwentyQuestions/twenty_questions_words.json', 'r') as f:
+            word_data = json.load(f)
+
+        self.word_data = word_data["basic"][self.ground_truth_theme]
+
     def format_history(self, history: list) -> str:
         serialized_history = ""
         for entry in history:
@@ -95,7 +100,8 @@ class LLMAgent(ta.agents.OpenRouterAgent):
     def move(self, history: str, max_retries: int = 10) -> str:
         """Ask the agent for a move (final guess)"""
         context = BASE_PROMPT.format(history=history)
-        prompt = MOVE_PROMPT.format(context=context)
+
+        prompt = MOVE_PROMPT.format(context=context, objects=self.word_data)
 
         for _ in range(max_retries):
             response = self.openrouter_agent(prompt)
@@ -112,11 +118,12 @@ class LLMAgent(ta.agents.OpenRouterAgent):
             raise ValueError(f"Unexpected move: {response}")
 
 class EIGAgent(LLMAgent):
-    def __init__(self, openrouter_agent: ta.agents.OpenRouterAgent, ground_truth_theme: str):
+    def __init__(self, openrouter_agent: ta.agents.OpenRouterAgent, ground_truth_theme: str, k: int = 10):
         super().__init__(openrouter_agent=openrouter_agent, ground_truth_theme=ground_truth_theme)
         self.openrouter_agent = openrouter_agent
         self.sampling_agent = ta.agents.OpenRouterAgent(model_name="openai/gpt-5")  # Dedicated GPT-5 for sampling
         self.ground_truth_theme = ground_truth_theme
+        self.k = k
 
     def _generate_fresh_samples(self, history, max_retries: int = 10):
         """Generate fresh samples consistent with current game history"""
@@ -124,7 +131,8 @@ class EIGAgent(LLMAgent):
 
         context = BASE_PROMPT.format(history=formatted_history)
 
-        prompt = SAMPLES_PROMPT.format(context=context, theme=self.ground_truth_theme)
+        prompt = SAMPLES_PROMPT.format(context=context, theme=self.ground_truth_theme, objects=self.word_data)
+        
         for _ in range(max_retries):
             response = self.sampling_agent(prompt)
 
@@ -214,7 +222,7 @@ class EIGAgent(LLMAgent):
             EPSILON + ((1 - 2 * EPSILON) * p_true)
         ) - binary_entropy(EPSILON)
 
-    def question(self, history, remaining_questions=20, k=10, max_retries: int = 5) -> str:
+    def question(self, history, remaining_questions=20, max_retries: int = 5) -> str:
         # Generate fresh samples consistent with current history
         for _ in range(max_retries):
             samples = self._generate_fresh_samples(history)
@@ -223,7 +231,7 @@ class EIGAgent(LLMAgent):
             formatted_history = history #self.format_history(history)
             context = BASE_PROMPT.format(history=formatted_history)
 
-            questions = self._generate_batch_questions(context, remaining_questions, k, max_retries)
+            questions = self._generate_batch_questions(context, remaining_questions, self.k, max_retries)
 
             # Calculate EIG for all questions
             question_list = []

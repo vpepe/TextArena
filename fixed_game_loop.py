@@ -40,9 +40,9 @@ def run_single_game(model_name, gamemaster_model, agent_type, game_id, run_id):
 
         # Initialize agent based on type
         if agent_type == "LLM":
-            agent = LLMAgent(base_agent, ground_truth_theme)
+            agent = EIGAgent(base_agent, ground_truth_theme, k=1)
         else:
-            agent = EIGAgent(base_agent, ground_truth_theme)
+            agent = EIGAgent(base_agent, ground_truth_theme, k=10)
 
         done = False
         turn_count = 0
@@ -218,8 +218,8 @@ if __name__ == "__main__":
     results = run_parallel_experiments(
         models=models_to_test,
         gamemaster_model="openai/gpt-5",
-        agent_types=["EIG"],
-        games_per_model=1,  # 80 games per model per agent type
+        agent_types=["LLM","EIG"],
+        games_per_model=60,  # 80 games per model per agent type
         max_workers=128      # 128 concurrent threads
     )
 

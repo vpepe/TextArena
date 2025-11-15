@@ -72,7 +72,7 @@
             "embassy",
             "town square"
         ],
-        "people": [
+        "professions": [
             "teacher",
             "doctor",
             "nurse",
@@ -134,7 +134,7 @@
             "swimmer",
             "skater"
         ],
-        "things": [
+        "objects and animals": [
             "apple",
             "banana",
             "table",

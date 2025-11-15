@@ -34,11 +34,11 @@ Please think about your answer step by step. When you have come up with your que
 EIG_QUESTION_PROMPT = """
 {context}
 
-Your task is to generate {k} questions that will help you gain the most information possible about the secret word. Each question must be answerable with a Boolean answer (yes/no).
+Your task is to generate {k} question(s) that will help you gain the most information possible about the secret word. Each question must be answerable with a Boolean answer (yes/no).
 
-You have {remaining_questions} batches of {k} questions left.
+You have {remaining_questions} batches of {k} question(s) left.
 
-Please think about your answer step by step. When you have come up with your question, please return your questions as a JSON dictionary with numbered keys, wrapped in <answer></answer> tags like this: <answer>{{"1": "Is it a living thing?", "2": "Is it larger than a car?", "3": "Is it made of metal?"}}</answer>
+Please think about your answer step by step. When you have come up with your question, please return your question(s) as a JSON dictionary with numbered keys, wrapped in <answer></answer> tags like this: <answer>{{"1": "Is it a living thing?", "2": "Is it larger than a car?", "3": "Is it made of metal?"}}</answer>
 
 IMPORTANT: Use proper JSON format with double quotes around both keys and values.
 """
@@ -48,6 +48,12 @@ MOVE_PROMPT = """
 
 Your task is to make your one and only guess for the secret word. Make sure you consider the context of the theme and all previous questions and answers. 
 
+Guess from the list below:
+
+<objects>
+{objects}
+</objects>
+
 Please think about your answer step by step. When you have come up with a final answer, respond with your guess wrapped in <answer></answer> tags, and optionally square brackets, e.g. <answer>elephant</answer> or <answer>[elephant]</answer>"""
 
 #---------------------------------------------
@@ -55,7 +61,11 @@ Please think about your answer step by step. When you have come up with a final 
 SAMPLES_PROMPT = """
 {context}
 
-List 100 different objects, items, or concepts that fit the question-answer history given thus far.
+From the list below, list all the different objects, items, or concepts that fit the question-answer history given thus far.
+
+<objects>
+{objects}
+</objects>
 
 For example, if the history includes a question "Is it a living thing?" with answer "no", then none of the objects can be living things. 
 

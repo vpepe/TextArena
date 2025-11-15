@@ -41,13 +41,25 @@ class TwentyQuestionsEnv(ta.Env):
     def get_board_str(self): return create_board_str(game_state=self.state.game_state)
     def get_gamemaster_response(self, action: str) -> str:
         # Validate gamemaster state
+        ANSWER_REGEX = re.compile(r'<answer>(.*?)</answer>', re.IGNORECASE | re.DOTALL)
         if self.gamemaster_context is None: raise ValueError("Gamemaster context is not set.")
         if self.gamemaster_history is None: raise ValueError("History is not set.")
         if self.gamemaster_options is None: raise ValueError("Gamemaster options are not set.")
         options = ", ".join(f"'{opt}'" for opt in self.gamemaster_options) # Format available response options
         history = "\n".join(f"Q: {q}\nA: {a}" for q, a in self.gamemaster_history) # Construct conversation history
         prompt = (f"{self.gamemaster_context}\n{history}\n\nQ: {action}\nOptions: {options}\n\nPlease respond with the most appropriate option.") # Create prompt
-        response = self.gamemaster(prompt).strip() # Get response from the gamemaster agent
+        for _ in range(10):
+            #response = self.gamemaster(prompt).strip() # Get response from the gamemaster agent
+            completion = self.gamemaster(prompt)
+            response = ANSWER_REGEX.search(completion)
+
+            if response:
+                response = response.group(1).strip()
+                break
+        else:
+            raise RuntimeError("Failed to get a valid response from the gamemaster after multiple attempts.")
+
+
         # Validate response
         if any(option.lower() in response.lower() for option in self.gamemaster_options): self.gamemaster_history.append((action, response))  # Store valid responses
         else: self.gamemaster_history.append((action, "I'm sorry, I don't understand. Please try asking again."))  # Log fallback response
@@ -59,21 +71,26 @@ class TwentyQuestionsEnv(ta.Env):
         self.game_theme = random.choice(list(self.word_list.keys()))
         self.game_word = random.choice(self.word_list[self.game_theme])
         ## update the gamemaster
+        # self.gamemaster_context = (
+        #     f"You are the gamemaster for the game of '20 Questions'.\n"
+        #     f"You will provide responses to the players' questions that guides them into guessing the target word: {self.game_word}\n"
+        # )
+
         self.gamemaster_context = (
-            f"You are the gamemaster for the game of '20 Questions'.\n"
-            f"You will provide responses to the players' questions that guides them into guessing the target word: {self.game_word}\n"
+            f"You are playing 20 Questions. You are thinking of a word, '{self.game_word}', , and you have told the other player that this word is related to the theme of '{self.game_theme}'. \n Your task is to provide honest answers to the other player's yes-or-no questions to guide them towards finding the word you are thinking of (you both win if the other player guesses the word, and you both lose if they do not). \n Be sure to provide answers that are truthful and helpful, which may include some nuance and inference about what the other player may be thinking: for example, if the word is 'pharmacist', and the question is 'Does the profession deal with numbers or financial data?', while it is technically true that pharmacists deal with numbers, the best answer is 'No', since the question is likely trying to determine if the word is related to finance or accounting. You should only respond with one of the following options: {', '.join(self.gamemaster_options)}. \n Please think about your answer step-by-step before responding, and wrap your final answer in <answer></answer> tags, e.g. <answer>Yes</answer>."
         )
         self.state.reset(game_state={"target_word": self.game_word, "rendered_text": f"Game word: {self.game_word}"}, player_prompt_function=self._prompt)
     
     def _prompt(self, player_id: int, game_state: Dict[int, Any]) -> str:
-        return (
-            f"You are Player {player_id}. You are playing 20 Questions ({'Hardcore' if self.hardcore else 'Basic'}).\n"
-            f"The gamemaster has chosen a word that can be one or two words. This word is related to {self.game_theme}. You have to guess this word by asking yes-or-no questions.\n"
-            "The game will last for a maximum of 20 questions. After 20 questions, the gamemaster will prompt you to make a guess.\n"
-            "You may ask your question in any manner, so long they are not wrapped in square brackets.\n"
-            "Then, to make your final word guess, ensure that you wrap it with square brackets, e.g. [plane], [diving bell].\n"
-            "As you play, the history of your questions and gamemaster's responses will be displayed."
-        )
+        return f"The game has begun. The word is related to {self.game_theme}."
+        # return (
+        #     f"You are Player {player_id}. You are playing 20 Questions ).\n"
+        #     f"The gamemaster has chosen a word that can be one or two words. You have to guess this word by asking yes-or-no questions. This word is related to {self.game_theme}.\n"
+        #     "The game will last for a maximum of 20 questions. After 20 questions, the gamemaster will prompt you to make a guess.\n"
+        #     "You may ask your question in any manner, so long they are not wrapped in square brackets.\n"
+        #     "Then, to make your final word guess, ensure that you wrap it with square brackets, e.g. [plane], [diving bell].\n"
+        #     "As you play, the history of your questions and gamemaster's responses will be displayed."
+        # )
     
     def step(self, action: str) -> Tuple[bool, ta.Info]:
         player_id = self.state.current_player_id

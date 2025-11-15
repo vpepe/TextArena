@@ -65,7 +65,7 @@ class LLMAgent(ta.agents.OpenRouterAgent):
             action = self.question(history=formatted_history, remaining_questions=remaining_questions)
 
         return action
-    
+
     def decision(self, history: str, remaining_questions: int, max_retries: int = 10) -> str:
         """Ask if the agent wants to ask more questions or try to guess"""
         context = BASE_PROMPT.format(history=history)
@@ -98,7 +98,7 @@ class LLMAgent(ta.agents.OpenRouterAgent):
             print(f"Attempt {_} failed to parse question from response")
         else:
             raise ValueError(f"Unexpected response: {response}")
-    
+
     def move(self, history: str, max_retries: int = 10) -> str:
         """Ask the agent for a move (final guess)"""
         context = BASE_PROMPT.format(history=history)
@@ -140,7 +140,7 @@ class EIGAgent(LLMAgent):
 
             # Extract samples using regex for <answer></answer> tags
             match = ANSWER_REGEX.search(response)
-            
+
             if match:
                 try:
                     dict_content = match.group(1).strip()
@@ -174,6 +174,7 @@ class EIGAgent(LLMAgent):
         prompt = CONSISTENCY_PROMPT.format(context=context, question=question, objects=samples)
 
         for _ in range(max_retries):
+            print(f"[Attempt {_}] Getting consistency dict for question: {question}")
             response = self.sampling_agent(prompt)
 
             # Extract consistency dict using regex for <answer></answer> tags
@@ -183,6 +184,7 @@ class EIGAgent(LLMAgent):
                     dict_content = match.group(1).strip()
                     # Try JSON parsing first
                     consistency_dict = json.loads(dict_content)
+                    print(f"Consistency dict: {consistency_dict}")
                     return consistency_dict
                 except json.JSONDecodeError:
                     # Fallback to ast.literal_eval for Python dict format
@@ -225,10 +227,11 @@ class EIGAgent(LLMAgent):
         ) - binary_entropy(EPSILON)
 
     def question(self, history, remaining_questions=20, max_retries: int = 5) -> str:
-        # Generate fresh samples consistent with current history
-        for _ in range(max_retries):
-            samples = self._generate_fresh_samples(history)
+        # Use word_data as samples instead of generating fresh samples
+        samples = self.word_data
+        print(f"Word list ({len(samples)}): {samples}")
 
+        for _ in range(max_retries):
             # Generate k questions in a single batch
             formatted_history = history #self.format_history(history)
             context = BASE_PROMPT.format(history=formatted_history)

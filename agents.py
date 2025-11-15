@@ -5,6 +5,7 @@ from prompts import BASE_PROMPT, SAMPLES_PROMPT, DECISION_PROMPT, QUESTION_PROMP
 import numpy as np
 import ast
 from concurrent.futures import ThreadPoolExecutor
+import importlib.resources
 
 EPSILON = 0.1  # Noise parameter for answers
 BLANK_HISTORY_PLACEHOLDER = "(no history yet)"
@@ -34,7 +35,8 @@ class LLMAgent(ta.agents.OpenRouterAgent):
         self.openrouter_agent = openrouter_agent
         self.ground_truth_theme = ground_truth_theme
 
-        with open('/home/ubuntu/new_battleship/20_questions/TextArena/textarena/envs/TwentyQuestions/twenty_questions_words.json', 'r') as f:
+        # Load words using importlib.resources for consistency with env.py
+        with importlib.resources.files('textarena.envs.TwentyQuestions').joinpath('twenty_questions_words.json').open('r') as f:
             word_data = json.load(f)
 
         self.word_data = word_data["basic"][self.ground_truth_theme]

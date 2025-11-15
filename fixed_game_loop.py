@@ -7,6 +7,7 @@ import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
 import time
+import argparse
 
 load_dotenv()
 
@@ -208,19 +209,53 @@ def run_parallel_experiments(models, gamemaster_model="openai/gpt-4o", agent_typ
     return results
 
 if __name__ == "__main__":
-    # Example: Run parallel experiments with multiple models
-    models_to_test = [
-        "openai/gpt-4o",
-        #"meta-llama/llama-4-scout",
-    ]
+    parser = argparse.ArgumentParser(description='Run 20 Questions experiments with different models and agents')
+
+    parser.add_argument(
+        '--models',
+        nargs='+',
+        default=["openai/gpt-4o"],
+        help='List of models to test (space-separated). Example: --models openai/gpt-4o meta-llama/llama-3.1-8b-instruct'
+    )
+
+    parser.add_argument(
+        '--gamemaster-model',
+        type=str,
+        default="openai/gpt-4o",
+        help='Model to use as gamemaster (default: openai/gpt-4o)'
+    )
+
+    parser.add_argument(
+        '--games-per-model',
+        type=int,
+        default=5,
+        help='Number of games to run per model per agent type (default: 5)'
+    )
+
+    parser.add_argument(
+        '--agent-types',
+        nargs='+',
+        choices=['LLM', 'EIG'],
+        default=['LLM', 'EIG'],
+        help='Agent types to test (default: LLM EIG)'
+    )
+
+    parser.add_argument(
+        '--max-workers',
+        type=int,
+        default=10,
+        help='Maximum number of concurrent threads (default: 10)'
+    )
+
+    args = parser.parse_args()
 
     # Run experiments with both agent types
     results = run_parallel_experiments(
-        models=models_to_test,
-        gamemaster_model="openai/gpt-5",
-        agent_types=["LLM","EIG"],
-        games_per_model=60,  # 80 games per model per agent type
-        max_workers=128      # 128 concurrent threads
+        models=args.models,
+        gamemaster_model=args.gamemaster_model,
+        agent_types=args.agent_types,
+        games_per_model=args.games_per_model,
+        max_workers=args.max_workers
     )
 
     # Print some summary statistics

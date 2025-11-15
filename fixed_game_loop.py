@@ -8,6 +8,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
 import time
 import argparse
+import traceback
 
 load_dotenv()
 
@@ -104,7 +105,9 @@ def run_single_game(model_name, gamemaster_model, agent_type, game_id, run_id):
         return game_result
 
     except Exception as e:
+        tb = traceback.format_exc()
         thread_safe_print(f"❌ Game {game_id} (Run {run_id}) failed: {model_name} ({agent_type}) - Error: {str(e)}")
+        thread_safe_print(f"Traceback:\n{tb}")
         return {
             'game_id': game_id,
             'run_id': run_id,
@@ -112,6 +115,7 @@ def run_single_game(model_name, gamemaster_model, agent_type, game_id, run_id):
             'gamemaster_model': gamemaster_model,
             'agent_type': agent_type,
             'error': str(e),
+            'traceback': tb,
             'timestamp': datetime.datetime.now().isoformat()
         }
 

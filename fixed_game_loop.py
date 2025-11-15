@@ -217,9 +217,9 @@ if __name__ == "__main__":
     # Run experiments with both agent types
     results = run_parallel_experiments(
         models=models_to_test,
-        gamemaster_model="openai/gpt-5",
-        agent_types=["LLM","EIG"],
-        games_per_model=60,  # 80 games per model per agent type
+        gamemaster_model="openai/gpt-4.1-mini",
+        agent_types=["LLM"],
+        games_per_model=1,  # 80 games per model per agent type
         max_workers=128      # 128 concurrent threads
     )
 

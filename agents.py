@@ -34,7 +34,7 @@ class LLMAgent(ta.agents.OpenRouterAgent):
         self.openrouter_agent = openrouter_agent
         self.ground_truth_theme = ground_truth_theme
 
-        with open('/home/ubuntu/new_battleship/20_questions/TextArena/textarena/envs/TwentyQuestions/twenty_questions_words.json', 'r') as f:
+        with open('/home/ubuntu/new_battleship/20_questions/20_questions/TextArena/textarena/envs/TwentyQuestions/twenty_questions_words.json', 'r') as f:
             word_data = json.load(f)
 
         self.word_data = word_data["basic"][self.ground_truth_theme]
@@ -131,7 +131,9 @@ class EIGAgent(LLMAgent):
 
         context = BASE_PROMPT.format(history=formatted_history)
 
-        prompt = SAMPLES_PROMPT.format(context=context, theme=self.ground_truth_theme, objects=self.word_data)
+        prompt = SAMPLES_PROMPT.format(context=context, objects=self.word_data)
+
+        print(prompt)
         
         for _ in range(max_retries):
             response = self.sampling_agent(prompt)

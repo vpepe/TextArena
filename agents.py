@@ -183,43 +183,65 @@ class EIGAgent(LLMAgent):
                 try:
                     dict_content = match.group(1).strip()
                     # Try JSON parsing first
-                    consistency_dict = json.loads(dict_content)
-                    print(f"Consistency dict: {consistency_dict}")
-                    return consistency_dict
-                except json.JSONDecodeError:
-                    # Fallback to ast.literal_eval for Python dict format
                     try:
-                        consistency_dict = ast.literal_eval(dict_content)
-                        return consistency_dict
-                    except Exception as e:
-                        print(f"Error parsing consistency dictionary from tags: {e}")
-                        print(f"Tag content was: {dict_content}")
+                        raw_dict = json.loads(dict_content)
+                    except json.JSONDecodeError:
+                        # Fallback to ast.literal_eval for Python dict format
+                        raw_dict = ast.literal_eval(dict_content)
+
+                    # Normalize to lowercase for case-insensitive matching
+                    consistency_dict = {}
+                    for key, value in raw_dict.items():
+                        # Normalize key (object name) to lowercase
+                        normalized_key = str(key).lower().strip()
+                        # Normalize value (yes/no/i don't know) to lowercase
+                        normalized_value = str(value).lower().strip()
+
+                        # Validate that value is yes, no, or i don't know
+                        if normalized_value not in ["yes", "no", "i don't know"]:
+                            print(f"Warning: Invalid value '{value}' for key '{key}', skipping")
+                            continue
+
+                        consistency_dict[normalized_key] = normalized_value
+
+                    print(f"Consistency dict (normalized): {consistency_dict}")
+                    return consistency_dict
+
                 except Exception as e:
                     print(f"Error parsing consistency dictionary from tags: {e}")
                     print(f"Tag content was: {dict_content}")
             print(f"Consistency attempt {_} failed to parse samples from response")
         else:
-            raise ValueError(f"Failed to generate fresh samples after {max_retries} attempts")
+            raise ValueError(f"Failed to generate consistency dict after {max_retries} attempts")
 
     def _calculate_eig(self, consistency_dict, samples: list):
-        results = {"yes": 0, "no": 0}
+        results = {"yes": 0, "no": 0, "i don't know": 0}
 
         for obj in samples:
-            if obj in consistency_dict:
-                answer = consistency_dict[obj]
-                if answer == "yes":
-                    results["yes"] += 1
-                elif answer == "no":
-                    results["no"] += 1
+            # Normalize object name to lowercase for case-insensitive matching
+            normalized_obj = str(obj).lower().strip()
+
+            if normalized_obj in consistency_dict:
+                answer = consistency_dict[normalized_obj]
+                if answer in ["yes", "no", "i don't know"]:
+                    results[answer] += 1
                 else:
                     print(f"Unexpected answer '{answer}' for object '{obj}'")
                     return float("nan")
+            else:
+                print(f"Warning: Object '{obj}' not found in consistency_dict")
 
-        if any(v == 0 for v in results.values()):
+        # Only count yes/no for EIG calculation, skip "I don't know"
+        total_count = results["yes"] + results["no"]
+
+        if total_count == 0:
+            print("Warning: No yes/no answers found, only 'I don't know'")
             return 0
 
-        # Calculate EIG using equal probabilities for all samples
-        total_count = sum(results.values())
+        if any(v == 0 for v in [results["yes"], results["no"]]):
+            return 0
+
+        # Calculate EIG using equal probabilities for all samples (excluding "I don't know")
         p_true = results["yes"] / total_count
 
         return binary_entropy(
@@ -228,7 +250,8 @@ class EIGAgent(LLMAgent):
 
     def question(self, history, remaining_questions=20, max_retries: int = 5) -> str:
         # Use word_data as samples instead of generating fresh samples
-        samples = self.word_data
+        # Normalize to lowercase for case-insensitive matching
+        samples = [str(word).lower().strip() for word in self.word_data]
         print(f"Word list ({len(samples)}): {samples}")
 
         for _ in range(max_retries):

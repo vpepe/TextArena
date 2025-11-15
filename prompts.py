@@ -48,7 +48,7 @@ IMPORTANT: Use proper JSON format with double quotes around both keys and values
 MOVE_PROMPT = """
 {context}
 
-Your task is to make your one and only guess for the secret word. Make sure you consider the context of the theme and all previous questions and answers. 
+Your task is to make your one and only guess for the secret word. Make sure you consider the context of the theme and all previous questions and answers.
 
 Guess from the list below:
 
@@ -69,7 +69,7 @@ From the list below, list all the different objects, items, or concepts that fit
 {objects}
 </objects>
 
-For example, if the history includes a question "Is it a living thing?" with answer "no", then none of the objects can be living things. 
+For example, if the history includes a question "Is it a living thing?" with answer "no", then none of the objects can be living things.
 
 Return your answer as a JSON dictionary with numbered keys, wrapped in <answer></answer> tags like this:
     <answer>{{"1": "object1", "2": "object2", "3": "object3", "4": "object4", "5": "object5"}}</answer>
@@ -85,11 +85,11 @@ Here is the most recent question and a list of objects that might be the secret 
 Question: "{question}"
 Possible objects: {objects}
 
-Your task is to determine which objects are consistent with a "yes" answer to the question, and which are consistent with a "no" answer.
+Your task is to determine which objects are consistent with a "Yes" answer to the question, and which are consistent with a "No" answer. If the answer is ambiguous, you should respond with "I don't know" for that object.
 
-Respond with a JSON dictionary wrapped in <answer></answer> tags where the keys are the objects and the values are either "yes" or "no".
+Respond with a JSON dictionary wrapped in <answer></answer> tags where the keys are the objects and the values are one of ["Yes", "No", "I don't know"], like this:
 
-<answer>{{"object1": "yes", "object2": "no", "object3": "yes"}}</answer>
+<answer>{{"object1": "Yes", "object2": "No", "object3": "I don't know"}}</answer>
 
 IMPORTANT: Use proper JSON format with double quotes around both keys and values.
 

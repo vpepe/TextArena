@@ -134,8 +134,6 @@ class EIGAgent(LLMAgent):
         context = BASE_PROMPT.format(history=formatted_history)
 
         prompt = SAMPLES_PROMPT.format(context=context, objects=self.word_data)
-
-        print(prompt)
         
         for _ in range(max_retries):
             response = self.sampling_agent(prompt)

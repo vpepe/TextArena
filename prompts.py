@@ -1,13 +1,15 @@
 # Define ground_truth_theme here for this cell to work independently
 
-BASE_PROMPT = """
-You are playing 20 Questions. Your goal is to gather enough information to be able to guess a secret word that goes with a given theme by asking at most 20 yes/no questions.
+GAME_CONTEXT = """You are playing 20 Questions. Your goal is to gather enough information to be able to guess a secret word that goes with a given theme by asking at most 20 yes/no questions.
 
-The secret word can be one or two words long, and can be any word of concept that fits the theme. You can guess at any time, but if you guess wrong, you lose the game. After 20 questions, you will be forced to make a final guess.
+The secret word can be one or two words long, and can be any word of concept that fits the theme. You can guess at any time, but if you guess wrong, you lose the game. After 20 questions, you will be forced to make a final guess."""
+
+BASE_PROMPT = f"""
+{GAME_CONTEXT}
 
 Given this game history:
 
-{history}
+{{history}}
 """
 
 
@@ -74,20 +76,6 @@ Return your answer as a JSON dictionary with numbered keys, wrapped in <answer><
 
 IMPORTANT: Use proper JSON format with double quotes around both keys and values.
 """
-
-
-# SAMPLES_PROMPT = """
-# {context}
-
-# List 100 different objects, items, or concepts that would be appropriate for the theme/category "{theme}". You should list as many as possible, but take care to make sure they all fit the question-answer history given thus far.
-
-# For example, if the history includes a question "Is it a living thing?" with answer "no", then none of the objects can be living things. 
-
-# Return your answer as a JSON dictionary with numbered keys, wrapped in <answer></answer> tags like this:
-#     <answer>{{"1": "object1", "2": "object2", "3": "object3", "4": "object4", "5": "object5"}}</answer>
-
-# IMPORTANT: Use proper JSON format with double quotes around both keys and values.
-# """
 
 CONSISTENCY_PROMPT = """
 {context}

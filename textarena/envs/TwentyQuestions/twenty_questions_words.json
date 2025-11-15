@@ -1,7 +1,6 @@
 {
     "basic": {
         "iclr": [
-            [
                 "school",
                 "hospital",
                 "restaurant",
@@ -11,7 +10,6 @@
                 "apple",
                 "banana",
                 "table"
-            ]
         ],
         "places": [
             "school",

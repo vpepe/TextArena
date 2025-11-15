@@ -21,7 +21,7 @@ class TwentyQuestionsEnv(ta.Env):
 
         # Load the word list
         self.word_list = self._load_words()
-        
+
     def _load_words(self, words_path: Optional[str] = None):
         try:
             if words_path is not None:
@@ -37,7 +37,7 @@ class TwentyQuestionsEnv(ta.Env):
             if not words: raise ValueError(f"No words found for difficulty level '{category}'.")
             return words
         except Exception as e: raise FileNotFoundError(f"Failed to load words data: {str(e)}")
-        
+
     def get_board_str(self): return create_board_str(game_state=self.state.game_state)
     def get_gamemaster_response(self, action: str) -> str:
         # Validate gamemaster state
@@ -79,7 +79,7 @@ class TwentyQuestionsEnv(ta.Env):
             f"You are playing 20 Questions. You are thinking of a word, '{self.game_word}'. \n Your task is to provide honest answers to the other player's yes-or-no questions to guide them towards finding the word you are thinking of (you both win if the other player guesses the word, and you both lose if they do not). \n Be sure to provide answers that are truthful and helpful, which may include some nuance and inference about what the other player may be thinking: for example, if the word is 'pharmacist', and the question is 'Does the profession deal with numbers or financial data?', while it is technically true that pharmacists deal with numbers, the best answer is 'No', since the question is likely trying to determine if the word is related to finance or accounting. You should only respond with one of the following options: {', '.join(self.gamemaster_options)}. \n Please think about your answer step-by-step before responding, and wrap your final answer in <answer></answer> tags, e.g. <answer>Yes</answer>."
         )
         self.state.reset(game_state={"target_word": self.game_word, "rendered_text": f"Game word: {self.game_word}"}, player_prompt_function=self._prompt)
-    
+
     def _prompt(self, player_id: int, game_state: Dict[int, Any]) -> str:
         return f"The game has begun."
         #     f"You are Player {player_id}. You are playing 20 Questions ).\n"
@@ -89,7 +89,7 @@ class TwentyQuestionsEnv(ta.Env):
         #     "Then, to make your final word guess, ensure that you wrap it with square brackets, e.g. [plane], [diving bell].\n"
         #     "As you play, the history of your questions and gamemaster's responses will be displayed."
         # )
-    
+
     def step(self, action: str) -> Tuple[bool, ta.Info]:
         player_id = self.state.current_player_id
         self.state.add_observation(from_id=player_id, to_id=-1, message=action, observation_type=ta.ObservationType.PLAYER_ACTION)
@@ -107,5 +107,5 @@ class TwentyQuestionsEnv(ta.Env):
             self.state.game_state["rendered_text"] = f"Game word: {self.game_word}"
         if self.state.check_turn_limit() and not self.state.done: self.state.set_outcome(reward=0, reason=f"The turn limit has been reached")
         return self.state.step()
-    
-    
+
+

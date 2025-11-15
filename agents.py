@@ -29,6 +29,17 @@ def binary_entropy(p: float) -> float:
     else:
         return -p * np.log2(p) - (1 - p) * np.log2(1 - p)
 
+def shannon_entropy(probabilities: list) -> float:
+    """
+    Calculate Shannon entropy for a probability distribution.
+    H = -sum(p_i * log2(p_i)) for all i where p_i > 0
+    """
+    entropy = 0.0
+    for p in probabilities:
+        if p > 0:
+            entropy -= p * np.log2(p)
+    return entropy
+
 class LLMAgent(ta.agents.OpenRouterAgent):
     def __init__(self, openrouter_agent: ta.agents.OpenRouterAgent, ground_truth_theme: str):
         super().__init__(model_name=openrouter_agent.model_name)
@@ -127,6 +138,114 @@ class EIGAgent(LLMAgent):
         self.ground_truth_theme = ground_truth_theme
         self.k = k
 
+        # Initialize belief distribution as uniform over all words
+        self._initialize_beliefs()
+
+        # Track which history entries we've processed for belief updates
+        self.last_processed_turn = 0
+
+        # Cache for simulated answers: question -> {word: answer}
+        self.simulated_answers_cache = {}
+
+    def __call__(self, game_history: list) -> str:
+        """Main method called by TextArena environment - includes belief updates"""
+        # Process new question-answer pairs to update beliefs
+        self._process_history_for_beliefs(game_history)
+
+        # Call parent's __call__ to continue with normal logic
+        return super().__call__(game_history)
+
+    def _process_history_for_beliefs(self, game_history: list):
+        """Process game history to update beliefs based on new Q&A pairs"""
+        # Extract only new entries since last processed turn
+        new_entries = game_history[self.last_processed_turn:]
+
+        formatted_history = self.format_history(game_history[:self.last_processed_turn])
+
+        # Look for player question -> gamemaster answer pairs
+        i = 0
+        while i < len(new_entries):
+            entry = new_entries[i]
+
+            # Check if this is a player's question (player 0)
+            if entry["player"] == 0:
+                # Look for the next gamemaster response (player -1)
+                if i + 1 < len(new_entries) and new_entries[i + 1]["player"] == -1:
+                    question = entry["message"]
+                    answer = new_entries[i + 1]["message"]
+
+                    # Update beliefs based on this Q&A pair
+                    self._update_belief(question, answer, formatted_history)
+
+                    # Update formatted history for next iteration
+                    formatted_history += f"[PLAYER] {question}\n[GAME] {answer}\n"
+
+                    i += 2  # Skip the answer we just processed
+                    continue
+
+            i += 1
+
+        # Update the last processed turn marker
+        self.last_processed_turn = len(game_history)
+
+    def _initialize_beliefs(self):
+        """Initialize uniform belief distribution over word list"""
+        n_words = len(self.word_data)
+        uniform_prob = 1.0 / n_words
+        self.belief_distribution = {word.lower().strip(): uniform_prob for word in self.word_data}
+        print(f"Initialized uniform belief distribution over {n_words} words")
+
+    def _update_belief(self, question: str, actual_answer: str, history):
+        """
+        Update belief distribution based on question and actual answer received.
+        Uses Bayesian update: p(word|answer) ∝ p(word) * p(answer|word)
+        where p(answer|word) = 1 if simulated answer matches actual answer, 0 otherwise
+        """
+        print(f"\nUpdating beliefs based on Q: '{question}' -> A: '{actual_answer}'")
+
+        # Normalize actual answer
+        actual_answer = actual_answer.lower().strip()
+
+        # Check if we have cached simulated answers for this question
+        if question not in self.simulated_answers_cache:
+            # If not cached, simulate answers for all words
+            words_to_simulate = [word for word in self.belief_distribution.keys()]
+            self._simulate_answer(question, words_to_simulate, history)
+
+        simulated_answers = self.simulated_answers_cache[question]
+
+        # Calculate new unnormalized probabilities
+        new_beliefs = {}
+        for word, prob in self.belief_distribution.items():
+            # Get simulated answer from cache
+            if word in simulated_answers:
+                simulated_answer = simulated_answers[word]
+
+                # Update probability: keep prob if answers match, set to 0 otherwise
+                if simulated_answer == actual_answer:
+                    new_beliefs[word] = prob
+                else:
+                    new_beliefs[word] = 0.0
+            else:
+                # If word not in simulated answers (shouldn't happen), set to 0
+                print(f"WARNING: No simulated answer for word '{word}'")
+                new_beliefs[word] = 0.0
+
+        # Renormalize
+        total_prob = sum(new_beliefs.values())
+
+        if total_prob == 0:
+            print("WARNING: All probabilities became 0! Resetting to uniform.")
+            self._initialize_beliefs()
+            return
+
+        self.belief_distribution = {word: p / total_prob for word, p in new_beliefs.items()}
+
+        # Print top beliefs
+        top_words = sorted(self.belief_distribution.items(), key=lambda x: x[1], reverse=True)[:5]
+        print(f"Top 5 beliefs after update: {top_words}")
+        print(f"Entropy: {shannon_entropy(list(self.belief_distribution.values())):.3f}")
+
     def _generate_fresh_samples(self, history, max_retries: int = 10):
         """Generate fresh samples consistent with current game history"""
         formatted_history = history
@@ -168,16 +287,26 @@ class EIGAgent(LLMAgent):
         else:
             raise ValueError(f"Failed to generate fresh samples after {max_retries} attempts")
 
-    def _get_consistency_dict(self, question: str, samples: list, history, max_retries: int = 10):
-        formatted_history = history #self.format_history(history)
+    def _simulate_answer(self, question: str, words: list, history, max_retries: int = 10):
+        """
+        Simulate what answers the gamemaster would give for all words in a single LLM call.
+        Returns a dict mapping word -> answer
+        """
+        # Check cache first
+        cache_key = question
+        if cache_key in self.simulated_answers_cache:
+            print(f"Using cached simulated answers for question: '{question}'")
+            return self.simulated_answers_cache[cache_key]
+
+        formatted_history = history
         context = BASE_PROMPT.format(history=formatted_history)
-        prompt = CONSISTENCY_PROMPT.format(context=context, question=question, objects=samples)
+        prompt = CONSISTENCY_PROMPT.format(context=context, question=question, objects=words)
 
         for _ in range(max_retries):
-            print(f"[Attempt {_}] Getting consistency dict for question: {question}")
+            print(f"[Attempt {_}] Simulating answers for {len(words)} words and question: {question}")
             response = self.sampling_agent(prompt)
 
-            # Extract consistency dict using regex for <answer></answer> tags
+            # Extract answer using regex for <answer></answer> tags
             match = ANSWER_REGEX.search(response)
             if match:
                 try:
@@ -189,92 +318,130 @@ class EIGAgent(LLMAgent):
                         # Fallback to ast.literal_eval for Python dict format
                         raw_dict = ast.literal_eval(dict_content)
 
-                    # Normalize to lowercase for case-insensitive matching
-                    consistency_dict = {}
+                    # Normalize all answers to lowercase
+                    simulated_answers = {}
                     for key, value in raw_dict.items():
-                        # Normalize key (object name) to lowercase
+                        # Normalize key (word) to lowercase
                         normalized_key = str(key).lower().strip()
-                        # Normalize value (yes/no/i don't know) to lowercase
+                        # Normalize value (answer) to lowercase
                         normalized_value = str(value).lower().strip()
 
-                        # Validate that value is yes, no, or i don't know
+                        # Validate that answer is yes, no, or i don't know
                         if normalized_value not in ["yes", "no", "i don't know"]:
-                            print(f"Warning: Invalid value '{value}' for key '{key}', skipping")
+                            print(f"Warning: Invalid answer '{value}' for word '{key}', skipping")
                             continue
 
-                        consistency_dict[normalized_key] = normalized_value
+                        simulated_answers[normalized_key] = normalized_value
 
-                    print(f"Consistency dict (normalized): {consistency_dict}")
-                    return consistency_dict
+                    print(f"Simulated {len(simulated_answers)} answers successfully")
+
+                    # Cache the results
+                    self.simulated_answers_cache[cache_key] = simulated_answers
+
+                    return simulated_answers
 
                 except Exception as e:
-                    print(f"Error parsing consistency dictionary from tags: {e}")
+                    print(f"Error parsing simulated answers from tags: {e}")
                     print(f"Tag content was: {dict_content}")
-            print(f"Consistency attempt {_} failed to parse samples from response")
+            print(f"Simulation attempt {_} failed to parse answers from response")
         else:
-            raise ValueError(f"Failed to generate consistency dict after {max_retries} attempts")
+            raise ValueError(f"Failed to simulate answers after {max_retries} attempts")
 
-    def _calculate_eig(self, consistency_dict, samples: list):
-        results = {"yes": 0, "no": 0, "i don't know": 0}
+    def _calculate_eig(self, question: str, history):
+        """
+        Calculate Expected Information Gain for a question.
+        EIG = H(current_beliefs) - E[H(beliefs | answer)]
+        """
+        # Calculate current entropy
+        current_probs = list(self.belief_distribution.values())
+        current_entropy = shannon_entropy(current_probs)
 
-        for obj in samples:
-            # Normalize object name to lowercase for case-insensitive matching
-            normalized_obj = str(obj).lower().strip()
+        print(f"\nCalculating EIG for question: '{question}'")
+        print(f"Current entropy: {current_entropy:.3f}")
 
-            if normalized_obj in consistency_dict:
-                answer = consistency_dict[normalized_obj]
-                if answer in ["yes", "no", "i don't know"]:
-                    results[answer] += 1
+        # Get all words with non-zero probability
+        words_to_simulate = [word for word, prob in self.belief_distribution.items() if prob > 0]
+
+        # Simulate answers for all words in a single batch call
+        simulated_answers = self._simulate_answer(question, words_to_simulate, history)
+
+        # Calculate expected posterior entropy
+        expected_posterior_entropy = 0.0
+
+        for answer in ["yes", "no", "i don't know"]:
+            # Calculate posterior distribution for this hypothetical answer
+            # This is the same computation as _update_belief, but without actually updating
+            posterior_distribution = {}
+
+            for word, prob in self.belief_distribution.items():
+                if word in simulated_answers:
+                    simulated_answer = simulated_answers[word]
+                    # p(word | answer) ∝ p(word) × p(answer | word)
+                    # where p(answer | word) = 1 if simulated_answer == answer, else 0
+                    if simulated_answer == answer:
+                        posterior_distribution[word] = prob
+                    else:
+                        posterior_distribution[word] = 0.0
                 else:
-                    print(f"Unexpected answer '{answer}' for object '{obj}'")
-                    return float("nan")
-            else:
-                print(f"Warning: Object '{obj}' not found in consistency_dict")
+                    posterior_distribution[word] = 0.0
 
-        # Only count yes/no for EIG calculation, skip "I don't know"
-        total_count = results["yes"] + results["no"]
+            # Calculate p(answer) = sum of unnormalized posterior probabilities
+            p_answer = sum(posterior_distribution.values())
 
-        if total_count == 0:
-            print("Warning: No yes/no answers found, only 'I don't know'")
-            return 0
+            if p_answer == 0:
+                # This answer is impossible given current beliefs
+                continue
 
-        if any(v == 0 for v in [results["yes"], results["no"]]):
-            return 0
+            # Normalize the posterior distribution
+            posterior_distribution = {word: p / p_answer for word, p in posterior_distribution.items()}
 
-        # Calculate EIG using equal probabilities for all samples (excluding "I don't know")
-        p_true = results["yes"] / total_count
+            # Calculate posterior entropy over the full distribution
+            posterior_probs = list(posterior_distribution.values())
+            posterior_entropy = shannon_entropy(posterior_probs)
 
-        return binary_entropy(
-            EPSILON + ((1 - 2 * EPSILON) * p_true)
-        ) - binary_entropy(EPSILON)
+            # Add to expected posterior entropy
+            expected_posterior_entropy += p_answer * posterior_entropy
+
+            n_nonzero = sum(1 for p in posterior_probs if p > 0)
+            print(f"  Answer '{answer}': p={p_answer:.3f}, n_words={n_nonzero}, H(posterior)={posterior_entropy:.3f}")
+
+        # EIG is the reduction in entropy
+        eig = current_entropy - expected_posterior_entropy
+
+        print(f"  Expected posterior entropy: {expected_posterior_entropy:.3f}")
+        print(f"  EIG: {eig:.3f}")
+
+        return eig
 
     def question(self, history, remaining_questions=20, max_retries: int = 5) -> str:
-        # Use word_data as samples instead of generating fresh samples
-        # Normalize to lowercase for case-insensitive matching
-        samples = [str(word).lower().strip() for word in self.word_data]
-        print(f"Word list ({len(samples)}): {samples}")
+        """Generate question with highest Expected Information Gain"""
+        print(f"\n=== Generating question (remaining: {remaining_questions}) ===")
 
         for _ in range(max_retries):
             # Generate k questions in a single batch
-            formatted_history = history #self.format_history(history)
+            formatted_history = history
             context = BASE_PROMPT.format(history=formatted_history)
 
             questions = self._generate_batch_questions(context, remaining_questions, self.k, max_retries)
 
+            if not questions:
+                continue
+
             # Calculate EIG for all questions
             question_list = []
             def process_question(question):
-                print(f"Calculating EIG for question: {question}")
-                consistency_dict = self._get_consistency_dict(question, samples, history)
-                eig = self._calculate_eig(consistency_dict, samples)
+                eig = self._calculate_eig(question, history)
                 return (question, eig)
 
             with ThreadPoolExecutor(max_workers=max(len(questions), 4)) as executor:
                 question_list = list(executor.map(process_question, questions))
 
-            print(f"Question EIGs: {question_list}")
+            print(f"\n=== Question EIG Rankings ===")
+            for i, (q, eig) in enumerate(sorted(question_list, key=lambda x: x[1], reverse=True)):
+                print(f"{i+1}. EIG={eig:.3f}: {q}")
 
             best_question = sorted(question_list, key=lambda x: x[1], reverse=True)[0][0]
+            print(f"\n=== Selected question: {best_question} ===")
             return best_question
         else:
             raise ValueError(f"Failed to generate valid questions after {max_retries} attempts")

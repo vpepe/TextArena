@@ -199,7 +199,9 @@ class EIGAgent(LLMAgent):
         """
         Update belief distribution based on question and actual answer received.
         Uses Bayesian update: p(word|answer) ∝ p(word) * p(answer|word)
-        where p(answer|word) = 1 if simulated answer matches actual answer, 0 otherwise
+        where p(answer|word) accounts for noise (EPSILON):
+        - If simulated_answer == actual_answer: p(answer|word) = (1 - EPSILON)
+        - If simulated_answer != actual_answer: p(answer|word) = EPSILON / 2
         """
         print(f"\nUpdating beliefs based on Q: '{question}' -> A: '{actual_answer}'")
 
@@ -221,11 +223,16 @@ class EIGAgent(LLMAgent):
             if word in simulated_answers:
                 simulated_answer = simulated_answers[word]
 
-                # Update probability: keep prob if answers match, set to 0 otherwise
+                # Update probability with noise model
+                # p(answer|word) = (1-EPSILON) if match, EPSILON/2 if no match
                 if simulated_answer == actual_answer:
-                    new_beliefs[word] = prob
+                    # Simulated answer matches actual answer
+                    likelihood = 1.0 - EPSILON
                 else:
-                    new_beliefs[word] = 0.0
+                    # Simulated answer doesn't match (noise case)
+                    likelihood = EPSILON / 2
+
+                new_beliefs[word] = prob * likelihood
             else:
                 # If word not in simulated answers (shouldn't happen), set to 0
                 raise ValueError(f"No simulated answer for word '{word}'")
@@ -385,16 +392,14 @@ class EIGAgent(LLMAgent):
             posterior_distribution = {}
 
             for word, prob in self.belief_distribution.items():
-                if word in simulated_answers:
-                    simulated_answer = simulated_answers[word]
-                    # p(word | answer) ∝ p(word) × p(answer | word)
-                    # where p(answer | word) = 1 if simulated_answer == answer, else 0
-                    if simulated_answer == answer:
-                        posterior_distribution[word] = prob
-                    else:
-                        posterior_distribution[word] = 0.0
+                simulated_answer = simulated_answers[word]
+                # p(word | answer) ∝ p(word) × p(answer | word)
+                # where p(answer | word) = 1 if simulated_answer == answer, else 0
+                if simulated_answer == answer:
+                    posterior_distribution[word] = prob * (1.0 - EPSILON)
                 else:
-                    posterior_distribution[word] = 0.0
+                    posterior_distribution[word] = prob * (EPSILON / 2)
+
 
             # Calculate p(answer) = sum of unnormalized posterior probabilities
             p_answer = sum(posterior_distribution.values())

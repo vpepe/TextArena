@@ -16,9 +16,9 @@ Given this game history:
 DECISION_PROMPT = """
 {context}
 
-Your task is to choose whether you'd like to ask another question about the word to gather more information about it, or, if you feel you already have enough information, to make your guess for the final answer.
+Your task is to choose whether you'd like to ask another question about the word to gather more information about it, or, if you feel you already have enough information to make your guess for the final answer.
 
-You have {remaining_questions} questions left, including this one. Be very careful about guessing early, since there is no cost to asking questions, and if you guess wrong, you lose the game.
+You have {remaining_questions} questions left, including this one. Be careful about guessing early, since there is no cost to asking questions, and if you guess wrong, you lose the game.
 
 Please think about your decision step by step. When you have come up with a final answer, respond with your decision wrapped in <answer></answer> tags: <answer>question</answer> if you would like to ask a question or <answer>guess</answer> if you would like to make your guess. Do not give the actual question or guess yet.
 """
@@ -26,7 +26,7 @@ Please think about your decision step by step. When you have come up with a fina
 QUESTION_PROMPT = """
 {context}
 
-Your task is to ask a single question that will help you gain the most information possible about the secret word. You can ask any question, but is must be answerable with a Boolean answer (yes/no). Make sure your questions are clear, specific and different from ones you have asked previously, to avoid pigeonholing a potentially wrong answer too quickly.
+Your task is to ask a single question that will help you gain the most information possible about the secret word. You can ask any question, but is must be answerable with "Yes," "No," or "I don't know." Make sure your questions are clear and distinct from ones you have asked previously.
 
 You have {remaining_questions} questions left, including this one.
 
@@ -36,7 +36,7 @@ Please think about your answer step by step. When you have come up with your que
 EIG_QUESTION_PROMPT = """
 {context}
 
-Your task is to generate {k} question(s) that will help you gain the most information possible about the secret word. Each question must be answerable with a Boolean answer (yes/no).
+Your task is to generate a set of {k} candidate question(s) that will help you gain the most information possible about the secret word. You can ask any question, but is must be answerable with "Yes," "No," or "I don't know." Make sure your questions are clear and distinct from ones you have asked previously. If providing multiple candidates, please ensure that the questions are diverse and cover different aspects of the secret word.
 
 You have {remaining_questions} batches of {k} question(s) left.
 
@@ -58,7 +58,7 @@ Guess from the list below:
 
 Please think about your answer step by step. When you have come up with a final answer, respond with your guess wrapped in <answer></answer> tags, and optionally square brackets, e.g. <answer>elephant</answer> or <answer>[elephant]</answer>"""
 
-#---------------------------------------------
+# ---------------------------------------------
 
 SAMPLES_PROMPT = """
 {context}

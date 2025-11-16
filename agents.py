@@ -134,7 +134,7 @@ class EIGAgent(LLMAgent):
     def __init__(self, openrouter_agent: ta.agents.OpenRouterAgent, ground_truth_theme: str, k: int = 10):
         super().__init__(openrouter_agent=openrouter_agent, ground_truth_theme=ground_truth_theme)
         self.openrouter_agent = openrouter_agent
-        self.sampling_agent = ta.agents.OpenRouterAgent(model_name="openai/gpt-5")  # Dedicated GPT-5 for sampling
+        self.sampling_agent = ta.agents.OpenRouterAgent(model_name=self.openrouter_agent.model_name)
         self.ground_truth_theme = ground_truth_theme
         self.k = k
 
@@ -228,8 +228,7 @@ class EIGAgent(LLMAgent):
                     new_beliefs[word] = 0.0
             else:
                 # If word not in simulated answers (shouldn't happen), set to 0
-                print(f"WARNING: No simulated answer for word '{word}'")
-                new_beliefs[word] = 0.0
+                raise ValueError(f"No simulated answer for word '{word}'")
 
         # Renormalize
         total_prob = sum(new_beliefs.values())
@@ -242,50 +241,50 @@ class EIGAgent(LLMAgent):
         self.belief_distribution = {word: p / total_prob for word, p in new_beliefs.items()}
 
         # Print top beliefs
-        top_words = sorted(self.belief_distribution.items(), key=lambda x: x[1], reverse=True)[:5]
-        print(f"Top 5 beliefs after update: {top_words}")
+        top_words = sorted(self.belief_distribution.items(), key=lambda x: x[1], reverse=True)
+        print(f"Top beliefs after update: {top_words}")
         print(f"Entropy: {shannon_entropy(list(self.belief_distribution.values())):.3f}")
 
-    def _generate_fresh_samples(self, history, max_retries: int = 10):
-        """Generate fresh samples consistent with current game history"""
-        formatted_history = history
+    # def _generate_fresh_samples(self, history, max_retries: int = 10):
+    #     """Generate fresh samples consistent with current game history"""
+    #     formatted_history = history
 
-        context = BASE_PROMPT.format(history=formatted_history)
+    #     context = BASE_PROMPT.format(history=formatted_history)
 
-        prompt = SAMPLES_PROMPT.format(context=context, objects=self.word_data)
-        
-        for _ in range(max_retries):
-            response = self.sampling_agent(prompt)
+    #     prompt = SAMPLES_PROMPT.format(context=context, objects=self.word_data)
 
-            # Extract samples using regex for <answer></answer> tags
-            match = ANSWER_REGEX.search(response)
+    #     for _ in range(max_retries):
+    #         response = self.sampling_agent(prompt)
 
-            if match:
-                try:
-                    dict_content = match.group(1).strip()
-                    # Try JSON parsing first
-                    samples_dict = json.loads(dict_content)
-                    # Extract values from dictionary format {1: "coconut", 2: "tomato", ...}
-                    samples = [obj.lower().strip() for obj in samples_dict.values()]
-                    print(f"Generated {len(samples)} fresh samples for EIG calculation")
-                    print(f"Sampled objects: {samples}")
-                    return samples
-                except json.JSONDecodeError:
-                    # Fallback to ast.literal_eval for Python dict format
-                    try:
-                        samples_dict = ast.literal_eval(dict_content)
-                        samples = [obj.lower().strip() for obj in samples_dict.values()]
-                        print(f"Generated {len(samples)} fresh samples for EIG calculation (via ast)")
-                        return samples
-                    except Exception as e:
-                        print(f"Error parsing fresh samples from tags: {e}")
-                        print(f"Tag content was: {dict_content}")
-                except Exception as e:
-                    print(f"Error parsing fresh samples from tags: {e}")
-                    print(f"Tag content was: {dict_content}")
-            print(f"Sampling attempt {_} failed to parse samples from response")
-        else:
-            raise ValueError(f"Failed to generate fresh samples after {max_retries} attempts")
+    #         # Extract samples using regex for <answer></answer> tags
+    #         match = ANSWER_REGEX.search(response)
+
+    #         if match:
+    #             try:
+    #                 dict_content = match.group(1).strip()
+    #                 # Try JSON parsing first
+    #                 samples_dict = json.loads(dict_content)
+    #                 # Extract values from dictionary format {1: "coconut", 2: "tomato", ...}
+    #                 samples = [obj.lower().strip() for obj in samples_dict.values()]
+    #                 print(f"Generated {len(samples)} fresh samples for EIG calculation")
+    #                 print(f"Sampled objects: {samples}")
+    #                 return samples
+    #             except json.JSONDecodeError:
+    #                 # Fallback to ast.literal_eval for Python dict format
+    #                 try:
+    #                     samples_dict = ast.literal_eval(dict_content)
+    #                     samples = [obj.lower().strip() for obj in samples_dict.values()]
+    #                     print(f"Generated {len(samples)} fresh samples for EIG calculation (via ast)")
+    #                     return samples
+    #                 except Exception as e:
+    #                     print(f"Error parsing fresh samples from tags: {e}")
+    #                     print(f"Tag content was: {dict_content}")
+    #             except Exception as e:
+    #                 print(f"Error parsing fresh samples from tags: {e}")
+    #                 print(f"Tag content was: {dict_content}")
+    #         print(f"Sampling attempt {_} failed to parse samples from response")
+    #     else:
+    #         raise ValueError(f"Failed to generate fresh samples after {max_retries} attempts")
 
     def _simulate_answer(self, question: str, words: list, history, max_retries: int = 10):
         """
@@ -333,7 +332,19 @@ class EIGAgent(LLMAgent):
 
                         simulated_answers[normalized_key] = normalized_value
 
-                    print(f"Simulated {len(simulated_answers)} answers successfully")
+                    # Validate that we have answers for all words
+                    missing_words = [word for word in words if word.lower().strip() not in simulated_answers]
+                    if missing_words:
+                        raise ValueError(f"Missing simulated answers for words: {missing_words}")
+
+                    # Validate that all words in simulated_answers are in the original words list
+                    extra_words = [word for word in simulated_answers.keys() if word not in [word.lower().strip() for word in words]]
+                    if extra_words:
+                        raise ValueError(f"Simulated answers contain extra words not in original list: {extra_words}")
+
+                    print(
+                        f"Simulated {len(simulated_answers)} answers successfully: {simulated_answers}"
+                    )
 
                     # Cache the results
                     self.simulated_answers_cache[cache_key] = simulated_answers
@@ -359,8 +370,8 @@ class EIGAgent(LLMAgent):
         print(f"\nCalculating EIG for question: '{question}'")
         print(f"Current entropy: {current_entropy:.3f}")
 
-        # Get all words with non-zero probability
-        words_to_simulate = [word for word, prob in self.belief_distribution.items() if prob > 0]
+        # Get all words
+        words_to_simulate = list(self.belief_distribution.keys())
 
         # Simulate answers for all words in a single batch call
         simulated_answers = self._simulate_answer(question, words_to_simulate, history)
@@ -444,7 +455,9 @@ class EIGAgent(LLMAgent):
             print(f"\n=== Selected question: {best_question} ===")
             return best_question
         else:
-            raise ValueError(f"Failed to generate valid questions after {max_retries} attempts")
+            raise ValueError(
+                f"Failed to generate valid questions after {max_retries} attempts"
+            )
 
     def _generate_batch_questions(self, context: str, remaining_questions: int, k: int, max_retries: int) -> list:
         """Generate k questions in a single batch using EIG_QUESTION_PROMPT"""

@@ -1,7 +1,7 @@
 import textarena as ta
 from dotenv import load_dotenv
 import os
-from agents import LLMAgent, EIGAgent
+from agents import LLMAgent, BayesMAgent, BayesQAgent, BayesQMAgent
 import json
 import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -42,9 +42,15 @@ def run_single_game(model_name, gamemaster_model, agent_type, game_id, run_id):
 
         # Initialize agent based on type
         if agent_type == "LLM":
-            agent = EIGAgent(base_agent, ground_truth_theme, k=1)
+            agent = LLMAgent(base_agent, ground_truth_theme)
+        elif agent_type == "Bayes-M":
+            agent = BayesMAgent(base_agent, ground_truth_theme)
+        elif agent_type == "Bayes-Q":
+            agent = BayesQAgent(base_agent, ground_truth_theme, k=10)
+        elif agent_type == "Bayes-QM":
+            agent = BayesQMAgent(base_agent, ground_truth_theme, k=10)
         else:
-            agent = EIGAgent(base_agent, ground_truth_theme, k=10)
+            raise ValueError(f"Unknown agent type: {agent_type}")
 
         done = False
         turn_count = 0
@@ -119,7 +125,7 @@ def run_single_game(model_name, gamemaster_model, agent_type, game_id, run_id):
             'timestamp': datetime.datetime.now().isoformat()
         }
 
-def run_parallel_experiments(models, gamemaster_model="openai/gpt-4o", agent_types=["LLM", "EIG"],
+def run_parallel_experiments(models, gamemaster_model="openai/gpt-4o", agent_types=["LLM", "Bayes-M", "Bayes-Q", "Bayes-QM"],
                            games_per_model=5, max_workers=10):
     """
     Run multiple games in parallel across different models and agent types
@@ -127,7 +133,7 @@ def run_parallel_experiments(models, gamemaster_model="openai/gpt-4o", agent_typ
     Args:
         models: List of model names to test
         gamemaster_model: Model to use as gamemaster
-        agent_types: List of agent types to test ["LLM", "EIG"]
+        agent_types: List of agent types to test ["LLM", "Bayes-M", "Bayes-Q", "Bayes-QM"]
         games_per_model: Number of games to run per model per agent type
         max_workers: Maximum number of concurrent threads
     """
@@ -239,9 +245,9 @@ if __name__ == "__main__":
     parser.add_argument(
         '--agent-types',
         nargs='+',
-        choices=['LLM', 'EIG'],
-        default=['LLM', 'EIG'],
-        help='Agent types to test (default: LLM EIG)'
+        choices=['LLM', 'Bayes-M', 'Bayes-Q', 'Bayes-QM'],
+        default=['LLM', 'Bayes-QM'],
+        help='Agent types to test (default: LLM Bayes-QM)'
     )
 
     parser.add_argument(

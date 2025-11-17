@@ -52,6 +52,12 @@ class LLMAgent(ta.agents.OpenRouterAgent):
 
         self.word_data = word_data["basic"][self.ground_truth_theme]
 
+        # Initialize belief tracking (passive for all agents)
+        self.sampling_agent = ta.agents.OpenRouterAgent(model_name=self.openrouter_agent.model_name)
+        self._initialize_beliefs()
+        self.last_processed_turn = 0
+        self.simulated_answers_cache = {}
+
     def format_history(self, history: list) -> str:
         serialized_history = ""
         for entry in history:
@@ -61,6 +67,9 @@ class LLMAgent(ta.agents.OpenRouterAgent):
 
     def __call__(self, game_history: list) -> str:
         """Main method called by TextArena environment"""
+        # Process new question-answer pairs to update beliefs (passive tracking for all agents)
+        self._process_history_for_beliefs(game_history)
+
         # Update game history
         formatted_history = self.format_history(game_history)
 
@@ -130,30 +139,14 @@ class LLMAgent(ta.agents.OpenRouterAgent):
         else:
             raise ValueError(f"Unexpected move: {response}")
 
-class EIGAgent(LLMAgent):
-    def __init__(self, openrouter_agent: ta.agents.OpenRouterAgent, ground_truth_theme: str, k: int = 10):
-        super().__init__(openrouter_agent=openrouter_agent, ground_truth_theme=ground_truth_theme)
-        self.openrouter_agent = openrouter_agent
-        self.sampling_agent = ta.agents.OpenRouterAgent(model_name=self.openrouter_agent.model_name)
-        self.ground_truth_theme = ground_truth_theme
-        self.k = k
+    # === Belief Tracking Methods (Passive for all agents) ===
 
-        # Initialize belief distribution as uniform over all words
-        self._initialize_beliefs()
-
-        # Track which history entries we've processed for belief updates
-        self.last_processed_turn = 0
-
-        # Cache for simulated answers: question -> {word: answer}
-        self.simulated_answers_cache = {}
-
-    def __call__(self, game_history: list) -> str:
-        """Main method called by TextArena environment - includes belief updates"""
-        # Process new question-answer pairs to update beliefs
-        self._process_history_for_beliefs(game_history)
-
-        # Call parent's __call__ to continue with normal logic
-        return super().__call__(game_history)
+    def _initialize_beliefs(self):
+        """Initialize uniform belief distribution over word list"""
+        n_words = len(self.word_data)
+        uniform_prob = 1.0 / n_words
+        self.belief_distribution = {word.lower().strip(): uniform_prob for word in self.word_data}
+        print(f"Initialized uniform belief distribution over {n_words} words")
 
     def _process_history_for_beliefs(self, game_history: list):
         """Process game history to update beliefs based on new Q&A pairs"""
@@ -187,13 +180,6 @@ class EIGAgent(LLMAgent):
 
         # Update the last processed turn marker
         self.last_processed_turn = len(game_history)
-
-    def _initialize_beliefs(self):
-        """Initialize uniform belief distribution over word list"""
-        n_words = len(self.word_data)
-        uniform_prob = 1.0 / n_words
-        self.belief_distribution = {word.lower().strip(): uniform_prob for word in self.word_data}
-        print(f"Initialized uniform belief distribution over {n_words} words")
 
     def _update_belief(self, question: str, actual_answer: str, history):
         """
@@ -249,49 +235,9 @@ class EIGAgent(LLMAgent):
 
         # Print top beliefs
         top_words = sorted(self.belief_distribution.items(), key=lambda x: x[1], reverse=True)
-        print(f"Top beliefs after update: {top_words}")
+        formatted = "\n".join(f"{w}: {p:.2f}" for w, p in top_words[:10])
+        print(f"Top beliefs after update:\n{formatted}")
         print(f"Entropy: {shannon_entropy(list(self.belief_distribution.values())):.3f}")
-
-    # def _generate_fresh_samples(self, history, max_retries: int = 10):
-    #     """Generate fresh samples consistent with current game history"""
-    #     formatted_history = history
-
-    #     context = BASE_PROMPT.format(history=formatted_history)
-
-    #     prompt = SAMPLES_PROMPT.format(context=context, objects=self.word_data)
-
-    #     for _ in range(max_retries):
-    #         response = self.sampling_agent(prompt)
-
-    #         # Extract samples using regex for <answer></answer> tags
-    #         match = ANSWER_REGEX.search(response)
-
-    #         if match:
-    #             try:
-    #                 dict_content = match.group(1).strip()
-    #                 # Try JSON parsing first
-    #                 samples_dict = json.loads(dict_content)
-    #                 # Extract values from dictionary format {1: "coconut", 2: "tomato", ...}
-    #                 samples = [obj.lower().strip() for obj in samples_dict.values()]
-    #                 print(f"Generated {len(samples)} fresh samples for EIG calculation")
-    #                 print(f"Sampled objects: {samples}")
-    #                 return samples
-    #             except json.JSONDecodeError:
-    #                 # Fallback to ast.literal_eval for Python dict format
-    #                 try:
-    #                     samples_dict = ast.literal_eval(dict_content)
-    #                     samples = [obj.lower().strip() for obj in samples_dict.values()]
-    #                     print(f"Generated {len(samples)} fresh samples for EIG calculation (via ast)")
-    #                     return samples
-    #                 except Exception as e:
-    #                     print(f"Error parsing fresh samples from tags: {e}")
-    #                     print(f"Tag content was: {dict_content}")
-    #             except Exception as e:
-    #                 print(f"Error parsing fresh samples from tags: {e}")
-    #                 print(f"Tag content was: {dict_content}")
-    #         print(f"Sampling attempt {_} failed to parse samples from response")
-    #     else:
-    #         raise ValueError(f"Failed to generate fresh samples after {max_retries} attempts")
 
     def _simulate_answer(self, question: str, words: list, history, max_retries: int = 10):
         """
@@ -429,6 +375,31 @@ class EIGAgent(LLMAgent):
 
         return eig
 
+    def _move_belief(self) -> str:
+        """
+        Helper method to make a final guess based on the belief distribution.
+        Returns the word with maximum probability.
+        """
+        # Find word with maximum probability
+        max_word = max(self.belief_distribution.items(), key=lambda x: x[1])
+        word, prob = max_word
+
+        print(f"\n=== Making final guess (belief-based) ===")
+        print(f"Selected word: '{word}' with probability {prob:.4f}")
+
+        # Show top 5 candidates
+        top_5 = sorted(self.belief_distribution.items(), key=lambda x: x[1], reverse=True)[:5]
+        print("Top 5 candidates:")
+        for i, (w, p) in enumerate(top_5, 1):
+            print(f"  {i}. {w}: {p:.4f}")
+
+        # Return in the correct format with brackets
+        return f"<answer>[{word}]</answer>"
+
+
+class EIGQuestionMixin:
+    """Mixin that provides EIG-based question selection"""
+
     def question(self, history, remaining_questions=20, max_retries: int = 5) -> str:
         """Generate question with highest Expected Information Gain"""
         print(f"\n=== Generating question (remaining: {remaining_questions}) ===")
@@ -497,3 +468,32 @@ class EIGAgent(LLMAgent):
 
         print(f"Failed to generate batch questions after {max_retries} attempts")
         return []
+
+
+
+class BayesMAgent(LLMAgent):
+    """LLM questions + Belief-based moves"""
+
+    def move(self, history: str) -> str:
+        """Make final guess based on belief distribution"""
+        return self._move_belief()
+
+
+class BayesQAgent(EIGQuestionMixin, LLMAgent):
+    """EIG questions + LLM moves"""
+
+    def __init__(self, openrouter_agent: ta.agents.OpenRouterAgent, ground_truth_theme: str, k: int = 10):
+        LLMAgent.__init__(self, openrouter_agent, ground_truth_theme)
+        self.k = k
+
+
+class BayesQMAgent(EIGQuestionMixin, LLMAgent):
+    """EIG questions + Belief-based moves"""
+
+    def __init__(self, openrouter_agent: ta.agents.OpenRouterAgent, ground_truth_theme: str, k: int = 10):
+        LLMAgent.__init__(self, openrouter_agent, ground_truth_theme)
+        self.k = k
+
+    def move(self, history: str) -> str:
+        """Make final guess based on belief distribution"""
+        return self._move_belief()

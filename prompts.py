@@ -1,14 +1,14 @@
 # Define ground_truth_theme here for this cell to work independently
 
-GAME_CONTEXT = """You are playing 20 Questions. Your goal is to gather enough information to be able to guess a secret word that goes with a given theme by asking at most 20 yes/no questions.
-
-The secret word can be one or two words long, and can be any word of concept that fits the theme. You can guess at any time, but if you guess wrong, you lose the game. After 20 questions, you will be forced to make a final guess."""
-
 BASE_PROMPT = f"""
-{GAME_CONTEXT}
+You are playing 20 Questions. Your goal is to gather enough information to be able to guess a secret word by asking at most 20 questions. You can ask any question, but the Gamemaster can only answer "Yes," "No," or "I don't know."
 
-Given this game history:
+You can guess at any time, but if you guess wrong, you lose the game. After 20 questions, you will be forced to make a final guess.
 
+Here is the list of possible words:
+{{word_list}}
+
+Here is the history of questions asked and answers given so far in the game:
 {{history}}
 """
 
@@ -39,6 +39,11 @@ EIG_QUESTION_PROMPT = """
 Your task is to generate a set of {k} candidate question(s) that will help you gain the most information possible about the secret word. You can ask any question, but is must be answerable with "Yes," "No," or "I don't know." Make sure your questions are clear and distinct from ones you have asked previously. If providing multiple candidates, please ensure that the questions are diverse and cover different aspects of the secret word.
 
 You have {remaining_questions} batches of {k} question(s) left.
+
+Current belief state (words ranked by probability):
+{belief_state}
+
+Use this belief state to guide your question generation. Focus on questions that will help distinguish between the most likely candidates.
 
 Please think about your answer step by step. When you have come up with your question, please return your question(s) as a JSON dictionary with numbered keys, wrapped in <answer></answer> tags like this: <answer>{{"1": "Is it a living thing?", "2": "Is it larger than a car?", "3": "Is it made of metal?"}}</answer>
 

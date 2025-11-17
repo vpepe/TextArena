@@ -116,7 +116,7 @@ class LLMAgent(ta.agents.OpenRouterAgent):
 
     def decision(self, history: str, remaining_questions: int, max_retries: int = 10) -> str:
         """Ask if the agent wants to ask more questions or try to guess"""
-        context = BASE_PROMPT.format(history=history)
+        context = BASE_PROMPT.format(word_list=self.word_data, history=history)
         prompt = DECISION_PROMPT.format(context=context, remaining_questions=remaining_questions)
 
         log_prompt("DECISION", prompt)
@@ -136,7 +136,7 @@ class LLMAgent(ta.agents.OpenRouterAgent):
 
     def question(self, history: str, remaining_questions: int = 20, max_retries: int = 10) -> str:
         """Ask the agent for a question"""
-        context = BASE_PROMPT.format(history=history)
+        context = BASE_PROMPT.format(word_list=self.word_data, history=history)
         prompt = QUESTION_PROMPT.format(context=context, remaining_questions=remaining_questions)
 
         log_prompt("QUESTION", prompt)
@@ -151,7 +151,7 @@ class LLMAgent(ta.agents.OpenRouterAgent):
 
     def move(self, history: str, max_retries: int = 10) -> str:
         """Ask the agent for a move (final guess)"""
-        context = BASE_PROMPT.format(history=history)
+        context = BASE_PROMPT.format(word_list=self.word_data, history=history)
 
         prompt = MOVE_PROMPT.format(context=context, objects=self.word_data)
 
@@ -282,7 +282,7 @@ class LLMAgent(ta.agents.OpenRouterAgent):
             return self.simulated_answers_cache[cache_key]
 
         formatted_history = history
-        context = BASE_PROMPT.format(history=formatted_history)
+        context = BASE_PROMPT.format(word_list=self.word_data, history=formatted_history)
         prompt = CONSISTENCY_PROMPT.format(context=context, question=question, objects=words)
 
         log_prompt("CONSISTENCY", prompt)
@@ -445,7 +445,7 @@ class EIGQuestionMixin:
         for _ in range(max_retries):
             # Generate k questions in a single batch
             formatted_history = history
-            context = BASE_PROMPT.format(history=formatted_history)
+            context = BASE_PROMPT.format(word_list=self.word_data, history=formatted_history)
 
             questions = self._generate_batch_questions(context, remaining_questions, self.k, max_retries)
 
@@ -477,7 +477,16 @@ class EIGQuestionMixin:
 
     def _generate_batch_questions(self, context: str, remaining_questions: int, k: int, max_retries: int) -> list:
         """Generate k questions in a single batch using EIG_QUESTION_PROMPT"""
-        prompt = EIG_QUESTION_PROMPT.format(context=context, remaining_questions=remaining_questions, k=k)
+        # Format belief state: all words ranked by probability
+        sorted_beliefs = sorted(self.belief_distribution.items(), key=lambda x: x[1], reverse=True)
+        belief_state = "\n".join(f"{i+1}. {word}: {prob:.3f}" for i, (word, prob) in enumerate(sorted_beliefs))
+
+        prompt = EIG_QUESTION_PROMPT.format(
+            context=context,
+            remaining_questions=remaining_questions,
+            k=k,
+            belief_state=belief_state
+        )
 
         log_prompt("BATCH QUESTION", prompt)
         for _ in range(max_retries):

@@ -1,5 +1,6 @@
 import json
 import re
+import logging
 import textarena as ta
 from prompts import BASE_PROMPT, SAMPLES_PROMPT, DECISION_PROMPT, QUESTION_PROMPT, EIG_QUESTION_PROMPT, MOVE_PROMPT, CONSISTENCY_PROMPT
 import numpy as np
@@ -7,11 +8,38 @@ import ast
 from concurrent.futures import ThreadPoolExecutor
 import importlib.resources
 
+logger = logging.getLogger(__name__)
+
+# Configuration flags
+SHOW_PROMPTS = False  # Set to True to show LLM prompts at INFO level
+
 EPSILON = 0.1  # Noise parameter for answers
 BLANK_HISTORY_PLACEHOLDER = "(no history yet)"
 ANSWER_REGEX = re.compile(r'<answer>(.*?)</answer>', re.IGNORECASE | re.DOTALL)
 
 player_dict = {-1: "GAME", 0: "PLAYER"}
+
+def log_prompt(label: str, prompt):
+    """
+    Log a prompt with consistent formatting if SHOW_PROMPTS is enabled.
+
+    Args:
+        label: Description of the prompt (e.g., "DECISION", "QUESTION")
+        prompt: Either a string or a list of message dicts
+    """
+    if not SHOW_PROMPTS:
+        return
+
+    # Format the prompt based on its type
+    if isinstance(prompt, str):
+        prompt_text = prompt
+    elif isinstance(prompt, list):
+        # Handle list of messages (e.g., [{"role": "system", "content": "..."}, ...])
+        prompt_text = "\n".join(f"[{msg.get('role', 'unknown')}] {msg.get('content', '')}" for msg in prompt)
+    else:
+        prompt_text = str(prompt)
+
+    logger.info(f"{'=' * 60}\n{label} PROMPT\n{'=' * 60}\n{prompt_text}\n{'=' * 60}")
 
 class DecisionType:
     QUESTION = "question"
@@ -91,6 +119,7 @@ class LLMAgent(ta.agents.OpenRouterAgent):
         context = BASE_PROMPT.format(history=history)
         prompt = DECISION_PROMPT.format(context=context, remaining_questions=remaining_questions)
 
+        log_prompt("DECISION", prompt)
         for _ in range(max_retries):
             response = self.openrouter_agent(prompt)
             match = ANSWER_REGEX.search(response)
@@ -101,7 +130,7 @@ class LLMAgent(ta.agents.OpenRouterAgent):
                     return DecisionType.QUESTION
                 elif decision == "guess":
                     return DecisionType.GUESS
-            print(f"Attempt {_} failed to parse decision from response")
+            logger.warning(f"Attempt {_} failed to parse decision from response")
         else:
             raise ValueError(f"Unexpected decision: {response}")
 
@@ -110,12 +139,13 @@ class LLMAgent(ta.agents.OpenRouterAgent):
         context = BASE_PROMPT.format(history=history)
         prompt = QUESTION_PROMPT.format(context=context, remaining_questions=remaining_questions)
 
+        log_prompt("QUESTION", prompt)
         for _ in range(max_retries):
             response = self.openrouter_agent(prompt)
             match = ANSWER_REGEX.search(response)
             if match:
                 return match.group(1).strip()
-            print(f"Attempt {_} failed to parse question from response")
+            logger.warning(f"Attempt {_} failed to parse question from response")
         else:
             raise ValueError(f"Unexpected response: {response}")
 
@@ -125,6 +155,7 @@ class LLMAgent(ta.agents.OpenRouterAgent):
 
         prompt = MOVE_PROMPT.format(context=context, objects=self.word_data)
 
+        log_prompt("MOVE", prompt)
         for _ in range(max_retries):
             response = self.openrouter_agent(prompt)
             # Extract move using regex for <answer></answer> tags
@@ -135,7 +166,7 @@ class LLMAgent(ta.agents.OpenRouterAgent):
                 if not (answer.startswith('[') and answer.endswith(']')):
                     answer = f"[{answer}]"
                 return answer
-            print(f"Attempt {_} failed to parse move from response")
+            logger.warning(f"Attempt {_} failed to parse move from response")
         else:
             raise ValueError(f"Unexpected move: {response}")
 
@@ -146,7 +177,7 @@ class LLMAgent(ta.agents.OpenRouterAgent):
         n_words = len(self.word_data)
         uniform_prob = 1.0 / n_words
         self.belief_distribution = {word.lower().strip(): uniform_prob for word in self.word_data}
-        print(f"Initialized uniform belief distribution over {n_words} words")
+        logger.info(f"Initialized uniform belief distribution over {n_words} words")
 
     def _process_history_for_beliefs(self, game_history: list):
         """Process game history to update beliefs based on new Q&A pairs"""
@@ -189,7 +220,7 @@ class LLMAgent(ta.agents.OpenRouterAgent):
         - If simulated_answer == actual_answer: p(answer|word) = (1 - EPSILON)
         - If simulated_answer != actual_answer: p(answer|word) = EPSILON / 2
         """
-        print(f"\nUpdating beliefs based on Q: '{question}' -> A: '{actual_answer}'")
+        logger.info(f"BELIEF UPDATE | Q: '{question}' → A: '{actual_answer}'")
 
         # Normalize actual answer
         actual_answer = actual_answer.lower().strip()
@@ -227,17 +258,17 @@ class LLMAgent(ta.agents.OpenRouterAgent):
         total_prob = sum(new_beliefs.values())
 
         if total_prob == 0:
-            print("WARNING: All probabilities became 0! Resetting to uniform.")
+            logger.warning("All probabilities became 0! Resetting to uniform.")
             self._initialize_beliefs()
             return
 
         self.belief_distribution = {word: p / total_prob for word, p in new_beliefs.items()}
 
-        # Print top beliefs
-        top_words = sorted(self.belief_distribution.items(), key=lambda x: x[1], reverse=True)
-        formatted = "\n".join(f"{w}: {p:.2f}" for w, p in top_words[:10])
-        print(f"Top beliefs after update:\n{formatted}")
-        print(f"Entropy: {shannon_entropy(list(self.belief_distribution.values())):.3f}")
+        # Show top beliefs
+        top_words = sorted(self.belief_distribution.items(), key=lambda x: x[1], reverse=True)[:5]
+        beliefs_str = ", ".join(f"{w}:{p:.2f}" for w, p in top_words)
+        entropy = shannon_entropy(list(self.belief_distribution.values()))
+        logger.info(f"Top beliefs: [{beliefs_str}] | Entropy: {entropy:.3f}")
 
     def _simulate_answer(self, question: str, words: list, history, max_retries: int = 10):
         """
@@ -247,15 +278,16 @@ class LLMAgent(ta.agents.OpenRouterAgent):
         # Check cache first
         cache_key = question
         if cache_key in self.simulated_answers_cache:
-            print(f"Using cached simulated answers for question: '{question}'")
+            logger.debug(f"Using cached simulated answers for question: '{question}'")
             return self.simulated_answers_cache[cache_key]
 
         formatted_history = history
         context = BASE_PROMPT.format(history=formatted_history)
         prompt = CONSISTENCY_PROMPT.format(context=context, question=question, objects=words)
 
+        log_prompt("CONSISTENCY", prompt)
         for _ in range(max_retries):
-            print(f"[Attempt {_}] Simulating answers for {len(words)} words and question: {question}")
+            logger.debug(f"[Attempt {_}] Simulating answers for {len(words)} words and question: {question}")
             response = self.sampling_agent(prompt)
 
             # Extract answer using regex for <answer></answer> tags
@@ -280,7 +312,7 @@ class LLMAgent(ta.agents.OpenRouterAgent):
 
                         # Validate that answer is yes, no, or i don't know
                         if normalized_value not in ["yes", "no", "i don't know"]:
-                            print(f"Warning: Invalid answer '{value}' for word '{key}', skipping")
+                            logger.warning(f"Invalid answer '{value}' for word '{key}', skipping")
                             continue
 
                         simulated_answers[normalized_key] = normalized_value
@@ -295,7 +327,7 @@ class LLMAgent(ta.agents.OpenRouterAgent):
                     if extra_words:
                         raise ValueError(f"Simulated answers contain extra words not in original list: {extra_words}")
 
-                    print(
+                    logger.debug(
                         f"Simulated {len(simulated_answers)} answers successfully: {simulated_answers}"
                     )
 
@@ -305,9 +337,9 @@ class LLMAgent(ta.agents.OpenRouterAgent):
                     return simulated_answers
 
                 except Exception as e:
-                    print(f"Error parsing simulated answers from tags: {e}")
-                    print(f"Tag content was: {dict_content}")
-            print(f"Simulation attempt {_} failed to parse answers from response")
+                    logger.warning(f"Error parsing simulated answers from tags: {e}")
+                    logger.warning(f"Tag content was: {dict_content}")
+            logger.warning(f"Simulation attempt {_} failed to parse answers from response")
         else:
             raise ValueError(f"Failed to simulate answers after {max_retries} attempts")
 
@@ -320,8 +352,7 @@ class LLMAgent(ta.agents.OpenRouterAgent):
         current_probs = list(self.belief_distribution.values())
         current_entropy = shannon_entropy(current_probs)
 
-        print(f"\nCalculating EIG for question: '{question}'")
-        print(f"Current entropy: {current_entropy:.3f}")
+        logger.debug(f"Calculating EIG for: '{question}'")
 
         # Get all words
         words_to_simulate = list(self.belief_distribution.keys())
@@ -365,13 +396,12 @@ class LLMAgent(ta.agents.OpenRouterAgent):
             expected_posterior_entropy += p_answer * posterior_entropy
 
             n_nonzero = sum(1 for p in posterior_probs if p > 0)
-            print(f"  Answer '{answer}': p={p_answer:.3f}, n_words={n_nonzero}, H(posterior)={posterior_entropy:.3f}")
+            logger.debug(f"  Answer '{answer}': p={p_answer:.3f}, n_words={n_nonzero}, H(posterior)={posterior_entropy:.3f}")
 
         # EIG is the reduction in entropy
         eig = current_entropy - expected_posterior_entropy
 
-        print(f"  Expected posterior entropy: {expected_posterior_entropy:.3f}")
-        print(f"  EIG: {eig:.3f}")
+        logger.debug(f"  EIG={eig:.3f} for '{question}'")
 
         return eig
 
@@ -384,14 +414,15 @@ class LLMAgent(ta.agents.OpenRouterAgent):
         max_word = max(self.belief_distribution.items(), key=lambda x: x[1])
         word, prob = max_word
 
-        print(f"\n=== Making final guess (belief-based) ===")
-        print(f"Selected word: '{word}' with probability {prob:.4f}")
-
         # Show top 5 candidates
         top_5 = sorted(self.belief_distribution.items(), key=lambda x: x[1], reverse=True)[:5]
-        print("Top 5 candidates:")
-        for i, (w, p) in enumerate(top_5, 1):
-            print(f"  {i}. {w}: {p:.4f}")
+        candidates_str = ", ".join(f"{w}:{p:.2f}" for w, p in top_5)
+
+        logger.info("=" * 60)
+        logger.info(f"FINAL GUESS (belief-based)")
+        logger.info(f"Selected: '{word}' (p={prob:.4f})")
+        logger.info(f"Top 5: [{candidates_str}]")
+        logger.info("=" * 60)
 
         # Return in the correct format with brackets
         return f"<answer>[{word}]</answer>"
@@ -402,7 +433,14 @@ class EIGQuestionMixin:
 
     def question(self, history, remaining_questions=20, max_retries: int = 5) -> str:
         """Generate question with highest Expected Information Gain"""
-        print(f"\n=== Generating question (remaining: {remaining_questions}) ===")
+        # Calculate and log current entropy once
+        current_probs = list(self.belief_distribution.values())
+        current_entropy = shannon_entropy(current_probs)
+
+        logger.info("=" * 60)
+        logger.info(f"QUESTION GENERATION (remaining: {remaining_questions})")
+        logger.info(f"Current entropy: {current_entropy:.3f}")
+        logger.info("=" * 60)
 
         for _ in range(max_retries):
             # Generate k questions in a single batch
@@ -420,15 +458,17 @@ class EIGQuestionMixin:
                 eig = self._calculate_eig(question, history)
                 return (question, eig)
 
+            logger.info(f"Evaluating {len(questions)} candidate questions...")
             with ThreadPoolExecutor(max_workers=max(len(questions), 4)) as executor:
                 question_list = list(executor.map(process_question, questions))
 
-            print(f"\n=== Question EIG Rankings ===")
-            for i, (q, eig) in enumerate(sorted(question_list, key=lambda x: x[1], reverse=True)):
-                print(f"{i+1}. EIG={eig:.3f}: {q}")
+            logger.info(f"Top {min(5, len(question_list))} questions by EIG:")
+            for i, (q, eig) in enumerate(sorted(question_list, key=lambda x: x[1], reverse=True)[:5]):
+                logger.info(f"  {i+1}. EIG={eig:.3f} | {q}")
 
-            best_question = sorted(question_list, key=lambda x: x[1], reverse=True)[0][0]
-            print(f"\n=== Selected question: {best_question} ===")
+            best_question, best_eig = sorted(question_list, key=lambda x: x[1], reverse=True)[0]
+            logger.info(f"✓ Selected (EIG={best_eig:.3f}): {best_question}")
+            logger.info("=" * 60)
             return best_question
         else:
             raise ValueError(
@@ -439,6 +479,7 @@ class EIGQuestionMixin:
         """Generate k questions in a single batch using EIG_QUESTION_PROMPT"""
         prompt = EIG_QUESTION_PROMPT.format(context=context, remaining_questions=remaining_questions, k=k)
 
+        log_prompt("BATCH QUESTION", prompt)
         for _ in range(max_retries):
             response = self.openrouter_agent(prompt)
             match = ANSWER_REGEX.search(response)
@@ -449,24 +490,24 @@ class EIGQuestionMixin:
                     # Try JSON parsing first
                     questions_dict = json.loads(dict_content)
                     questions = [q.strip() for q in questions_dict.values()]
-                    print(f"Generated {len(questions)} batch questions")
+                    logger.debug(f"Generated {len(questions)} batch questions")
                     return questions
                 except json.JSONDecodeError:
                     # Fallback to ast.literal_eval for Python dict format
                     try:
                         questions_dict = ast.literal_eval(dict_content)
                         questions = [q.strip() for q in questions_dict.values()]
-                        print(f"Generated {len(questions)} batch questions (via ast)")
+                        logger.debug(f"Generated {len(questions)} batch questions (via ast)")
                         return questions
                     except Exception as e:
-                        print(f"Error parsing batch questions from tags: {e}")
-                        print(f"Tag content was: {dict_content}")
+                        logger.warning(f"Error parsing batch questions from tags: {e}")
+                        logger.warning(f"Tag content was: {dict_content}")
                 except Exception as e:
-                    print(f"Error parsing batch questions from tags: {e}")
-                    print(f"Tag content was: {dict_content}")
-            print(f"Attempt {_} failed to make batch responses")
+                    logger.warning(f"Error parsing batch questions from tags: {e}")
+                    logger.warning(f"Tag content was: {dict_content}")
+            logger.warning(f"Attempt {_} failed to make batch responses")
 
-        print(f"Failed to generate batch questions after {max_retries} attempts")
+        logger.warning(f"Failed to generate batch questions after {max_retries} attempts")
         return []
 
 

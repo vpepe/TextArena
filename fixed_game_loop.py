@@ -9,16 +9,19 @@ import threading
 import time
 import argparse
 import traceback
+import logging
 
 load_dotenv()
 
-# Thread-safe print lock
-print_lock = threading.Lock()
+logger = logging.getLogger(__name__)
 
-def thread_safe_print(*args, **kwargs):
-    """Thread-safe print function"""
-    with print_lock:
-        print(*args, **kwargs)
+# Thread-safe logging lock
+log_lock = threading.Lock()
+
+def thread_safe_log(level, message):
+    """Thread-safe logging function"""
+    with log_lock:
+        logger.log(level, message)
 
 def run_single_game(model_name, gamemaster_model, agent_type, game_id, run_id):
     """
@@ -106,14 +109,14 @@ def run_single_game(model_name, gamemaster_model, agent_type, game_id, run_id):
         with open(filename, 'w') as f:
             json.dump(game_result, f, indent=2)
 
-        thread_safe_print(f"✅ Game {game_id} (Run {run_id}) completed: {model_name} ({agent_type}) - {turn_count} turns, {game_duration:.1f}s - {filename}")
+        thread_safe_log(logging.INFO, f"✅ Game {game_id} (Run {run_id}) completed: {model_name} ({agent_type}) - {turn_count} turns, {game_duration:.1f}s - {filename}")
 
         return game_result
 
     except Exception as e:
         tb = traceback.format_exc()
-        thread_safe_print(f"❌ Game {game_id} (Run {run_id}) failed: {model_name} ({agent_type}) - Error: {str(e)}")
-        thread_safe_print(f"Traceback:\n{tb}")
+        thread_safe_log(logging.ERROR, f"❌ Game {game_id} (Run {run_id}) failed: {model_name} ({agent_type}) - Error: {str(e)}")
+        thread_safe_log(logging.ERROR, f"Traceback:\n{tb}")
         return {
             'game_id': game_id,
             'run_id': run_id,
@@ -154,10 +157,10 @@ def run_parallel_experiments(models, gamemaster_model="openai/gpt-4o", agent_typ
                 game_id += 1
 
     total_games = len(game_configs)
-    thread_safe_print(f"🚀 Starting {total_games} games with {max_workers} workers...")
-    thread_safe_print(f"Models: {models}")
-    thread_safe_print(f"Agent types: {agent_types}")
-    thread_safe_print(f"Games per model per agent: {games_per_model}")
+    thread_safe_log(logging.INFO, f"🚀 Starting {total_games} games with {max_workers} workers...")
+    thread_safe_log(logging.INFO, f"Models: {models}")
+    thread_safe_log(logging.INFO, f"Agent types: {agent_types}")
+    thread_safe_log(logging.INFO, f"Games per model per agent: {games_per_model}")
 
     # Run games in parallel
     results = []
@@ -187,7 +190,7 @@ def run_parallel_experiments(models, gamemaster_model="openai/gpt-4o", agent_typ
             avg_time_per_game = elapsed_time / completed_games if completed_games > 0 else 0
             estimated_remaining = (total_games - completed_games) * avg_time_per_game
 
-            thread_safe_print(f"Progress: {completed_games}/{total_games} games completed "
+            thread_safe_log(logging.INFO, f"Progress: {completed_games}/{total_games} games completed "
                             f"({completed_games/total_games*100:.1f}%) - "
                             f"Est. remaining: {estimated_remaining/60:.1f} min")
 
@@ -212,9 +215,9 @@ def run_parallel_experiments(models, gamemaster_model="openai/gpt-4o", agent_typ
     with open(summary_filename, 'w') as f:
         json.dump(summary, f, indent=2)
 
-    thread_safe_print(f"\n🎉 Experiment completed!")
-    thread_safe_print(f"Total time: {(time.time() - start_time)/60:.1f} minutes")
-    thread_safe_print(f"Summary saved to: {summary_filename}")
+    thread_safe_log(logging.INFO, f"\n🎉 Experiment completed!")
+    thread_safe_log(logging.INFO, f"Total time: {(time.time() - start_time)/60:.1f} minutes")
+    thread_safe_log(logging.INFO, f"Summary saved to: {summary_filename}")
 
     return results
 
@@ -257,7 +260,37 @@ if __name__ == "__main__":
         help='Maximum number of concurrent threads (default: 10)'
     )
 
+    parser.add_argument(
+        '--log-level',
+        type=str,
+        choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'],
+        default='INFO',
+        help='Logging level (default: INFO)'
+    )
+
+    parser.add_argument(
+        '--show-prompts',
+        action='store_true',
+        default=False,
+        help='Show LLM prompts at INFO level (default: False)'
+    )
+
     args = parser.parse_args()
+
+    # Configure logging
+    log_level = getattr(logging, args.log_level.upper())
+    logging.basicConfig(
+        level=log_level,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+
+    # Suppress noisy HTTP logs from httpx
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+
+    # Configure prompt logging
+    import agents
+    agents.SHOW_PROMPTS = args.show_prompts
 
     # Run experiments with both agent types
     results = run_parallel_experiments(
@@ -272,12 +305,12 @@ if __name__ == "__main__":
     successful_games = [r for r in results if 'error' not in r]
     failed_games = [r for r in results if 'error' in r]
 
-    print(f"\n📊 Final Summary:")
-    print(f"Successful games: {len(successful_games)}")
-    print(f"Failed games: {len(failed_games)}")
+    logger.info(f"\n📊 Final Summary:")
+    logger.info(f"Successful games: {len(successful_games)}")
+    logger.info(f"Failed games: {len(failed_games)}")
 
     if successful_games:
         avg_turns = sum(r['turn_count'] for r in successful_games) / len(successful_games)
         avg_duration = sum(r['game_duration'] for r in successful_games) / len(successful_games)
-        print(f"Average turns per game: {avg_turns:.1f}")
-        print(f"Average game duration: {avg_duration:.1f}s")
+        logger.info(f"Average turns per game: {avg_turns:.1f}")
+        logger.info(f"Average game duration: {avg_duration:.1f}s")

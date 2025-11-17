@@ -2,7 +2,7 @@ import json
 import re
 import logging
 import textarena as ta
-from prompts import BASE_PROMPT, SAMPLES_PROMPT, DECISION_PROMPT, QUESTION_PROMPT, EIG_QUESTION_PROMPT, MOVE_PROMPT, CONSISTENCY_PROMPT
+from prompts import BASE_PROMPT, BELIEF_PROMPT, DECISION_PROMPT, QUESTION_PROMPT, EIG_QUESTION_PROMPT, MOVE_PROMPT, CONSISTENCY_PROMPT
 import numpy as np
 import ast
 from concurrent.futures import ThreadPoolExecutor
@@ -93,6 +93,15 @@ class LLMAgent(ta.agents.OpenRouterAgent):
             serialized_history += f"[{player}] {entry['message']}\n"
         return serialized_history
 
+    def get_base_prompt(self):
+        """Get the base prompt template. Override in subclasses for different prompts."""
+        return BASE_PROMPT
+
+    def _format_belief_state(self):
+        """Format belief state for prompts. Used by Bayesian agents."""
+        sorted_beliefs = sorted(self.belief_distribution.items(), key=lambda x: x[1], reverse=True)
+        return "\n".join(f"{i+1}. {word}: {prob:.3f}" for i, (word, prob) in enumerate(sorted_beliefs))
+
     def __call__(self, game_history: list) -> str:
         """Main method called by TextArena environment"""
         # Process new question-answer pairs to update beliefs (passive tracking for all agents)
@@ -116,7 +125,11 @@ class LLMAgent(ta.agents.OpenRouterAgent):
 
     def decision(self, history: str, remaining_questions: int, max_retries: int = 10) -> str:
         """Ask if the agent wants to ask more questions or try to guess"""
-        context = BASE_PROMPT.format(word_list=self.word_data, history=history)
+        context = self.get_base_prompt().format(
+            word_list=self.word_data,
+            history=history,
+            belief_state=self._format_belief_state()
+        )
         prompt = DECISION_PROMPT.format(context=context, remaining_questions=remaining_questions)
 
         log_prompt("DECISION", prompt)
@@ -136,7 +149,11 @@ class LLMAgent(ta.agents.OpenRouterAgent):
 
     def question(self, history: str, remaining_questions: int = 20, max_retries: int = 10) -> str:
         """Ask the agent for a question"""
-        context = BASE_PROMPT.format(word_list=self.word_data, history=history)
+        context = self.get_base_prompt().format(
+            word_list=self.word_data,
+            history=history,
+            belief_state=self._format_belief_state()
+        )
         prompt = QUESTION_PROMPT.format(context=context, remaining_questions=remaining_questions)
 
         log_prompt("QUESTION", prompt)
@@ -151,7 +168,11 @@ class LLMAgent(ta.agents.OpenRouterAgent):
 
     def move(self, history: str, max_retries: int = 10) -> str:
         """Ask the agent for a move (final guess)"""
-        context = BASE_PROMPT.format(word_list=self.word_data, history=history)
+        context = self.get_base_prompt().format(
+            word_list=self.word_data,
+            history=history,
+            belief_state=self._format_belief_state()
+        )
 
         prompt = MOVE_PROMPT.format(context=context, objects=self.word_data)
 
@@ -282,6 +303,7 @@ class LLMAgent(ta.agents.OpenRouterAgent):
             return self.simulated_answers_cache[cache_key]
 
         formatted_history = history
+        # Use BASE_PROMPT directly for consistency checks (not belief-aware)
         context = BASE_PROMPT.format(word_list=self.word_data, history=formatted_history)
         prompt = CONSISTENCY_PROMPT.format(context=context, question=question, objects=words)
 
@@ -445,7 +467,7 @@ class EIGQuestionMixin:
         for _ in range(max_retries):
             # Generate k questions in a single batch
             formatted_history = history
-            context = BASE_PROMPT.format(word_list=self.word_data, history=formatted_history)
+            context = self.get_base_prompt().format(word_list=self.word_data, history=formatted_history, belief_state=self._format_belief_state())
 
             questions = self._generate_batch_questions(context, remaining_questions, self.k, max_retries)
 
@@ -477,15 +499,12 @@ class EIGQuestionMixin:
 
     def _generate_batch_questions(self, context: str, remaining_questions: int, k: int, max_retries: int) -> list:
         """Generate k questions in a single batch using EIG_QUESTION_PROMPT"""
-        # Format belief state: all words ranked by probability
-        sorted_beliefs = sorted(self.belief_distribution.items(), key=lambda x: x[1], reverse=True)
-        belief_state = "\n".join(f"{i+1}. {word}: {prob:.3f}" for i, (word, prob) in enumerate(sorted_beliefs))
 
         prompt = EIG_QUESTION_PROMPT.format(
             context=context,
             remaining_questions=remaining_questions,
             k=k,
-            belief_state=belief_state
+            belief_state=self._format_belief_state(),
         )
 
         log_prompt("BATCH QUESTION", prompt)
@@ -520,9 +539,12 @@ class EIGQuestionMixin:
         return []
 
 
-
 class BayesMAgent(LLMAgent):
     """LLM questions + Belief-based moves"""
+
+    def get_base_prompt(self):
+        """Use BELIEF_PROMPT to show belief state in all prompts"""
+        return BELIEF_PROMPT
 
     def move(self, history: str) -> str:
         """Make final guess based on belief distribution"""
@@ -536,6 +558,10 @@ class BayesQAgent(EIGQuestionMixin, LLMAgent):
         LLMAgent.__init__(self, openrouter_agent, ground_truth_theme)
         self.k = k
 
+    def get_base_prompt(self):
+        """Use BELIEF_PROMPT to show belief state in all prompts"""
+        return BELIEF_PROMPT
+
 
 class BayesQMAgent(EIGQuestionMixin, LLMAgent):
     """EIG questions + Belief-based moves"""
@@ -543,6 +569,10 @@ class BayesQMAgent(EIGQuestionMixin, LLMAgent):
     def __init__(self, openrouter_agent: ta.agents.OpenRouterAgent, ground_truth_theme: str, k: int = 10):
         LLMAgent.__init__(self, openrouter_agent, ground_truth_theme)
         self.k = k
+
+    def get_base_prompt(self):
+        """Use BELIEF_PROMPT to show belief state in all prompts"""
+        return BELIEF_PROMPT
 
     def move(self, history: str) -> str:
         """Make final guess based on belief distribution"""

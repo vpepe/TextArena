@@ -43,6 +43,8 @@ def run_single_game(model_name, gamemaster_model, agent_type, game_id, run_id):
         ground_truth_word = env.game_word
         ground_truth_theme = env.game_theme
 
+        thread_safe_log(logging.INFO, f"🎯 Game {game_id} (Run {run_id}) - Target: '{ground_truth_word}' (theme: {ground_truth_theme})")
+
         # Initialize agent based on type
         if agent_type == "LLM":
             agent = LLMAgent(base_agent, ground_truth_theme)
@@ -158,6 +160,7 @@ def run_parallel_experiments(models, gamemaster_model="openai/gpt-4o", agent_typ
 
     total_games = len(game_configs)
     thread_safe_log(logging.INFO, f"🚀 Starting {total_games} games with {max_workers} workers...")
+    thread_safe_log(logging.INFO, f"Gamemaster: {gamemaster_model}")
     thread_safe_log(logging.INFO, f"Models: {models}")
     thread_safe_log(logging.INFO, f"Agent types: {agent_types}")
     thread_safe_log(logging.INFO, f"Games per model per agent: {games_per_model}")

@@ -86,6 +86,29 @@ class LLMAgent(ta.agents.OpenRouterAgent):
         self.last_processed_turn = 0
         self.simulated_answers_cache = {}
 
+        # Initialize diagnostics tracking
+        self.diagnostics = {
+            'turns': [],  # List of turn data
+            'llm_calls': [],  # All LLM prompt/completion pairs
+            'current_turn': 0
+        }
+
+    def get_diagnostics(self):
+        """Return collected diagnostics data"""
+        return self.diagnostics
+
+    def _record_llm_call(self, call_type: str, prompt: str, completion: str, metadata: dict = None):
+        """Record an LLM call with its prompt and completion"""
+        call_data = {
+            'type': call_type,
+            'prompt': prompt,
+            'completion': completion,
+            'turn': self.diagnostics['current_turn']
+        }
+        if metadata:
+            call_data['metadata'] = metadata
+        self.diagnostics['llm_calls'].append(call_data)
+
     def format_history(self, history: list) -> str:
         serialized_history = ""
         for entry in history:
@@ -104,8 +127,21 @@ class LLMAgent(ta.agents.OpenRouterAgent):
 
     def __call__(self, game_history: list) -> str:
         """Main method called by TextArena environment"""
+        # Increment turn counter
+        self.diagnostics['current_turn'] += 1
+
+        # Initialize turn diagnostics
+        turn_data = {
+            'turn_number': self.diagnostics['current_turn'],
+            'belief_state_before': dict(self.belief_distribution)
+        }
+
         # Process new question-answer pairs to update beliefs (passive tracking for all agents)
         self._process_history_for_beliefs(game_history)
+
+        # Record belief state after update
+        turn_data['belief_state_after'] = dict(self.belief_distribution)
+        turn_data['entropy'] = shannon_entropy(list(self.belief_distribution.values()))
 
         # Update game history
         formatted_history = self.format_history(game_history)
@@ -115,11 +151,19 @@ class LLMAgent(ta.agents.OpenRouterAgent):
         remaining_questions = max(0, 20 - player_questions)
 
         decision = self.decision(formatted_history, remaining_questions)
+        turn_data['decision'] = decision
 
         if DecisionType.GUESS == decision or remaining_questions == 0:
             action = self.move(formatted_history)
+            turn_data['action_type'] = 'guess'
         else:
             action = self.question(history=formatted_history, remaining_questions=remaining_questions)
+            turn_data['action_type'] = 'question'
+
+        turn_data['action'] = action
+
+        # Save turn data
+        self.diagnostics['turns'].append(turn_data)
 
         return action
 
@@ -135,6 +179,10 @@ class LLMAgent(ta.agents.OpenRouterAgent):
         log_prompt("DECISION", prompt)
         for _ in range(max_retries):
             response = self.openrouter_agent(prompt)
+
+            # Record LLM call
+            self._record_llm_call('decision', prompt, response)
+
             match = ANSWER_REGEX.search(response)
 
             if match:
@@ -159,6 +207,10 @@ class LLMAgent(ta.agents.OpenRouterAgent):
         log_prompt("QUESTION", prompt)
         for _ in range(max_retries):
             response = self.openrouter_agent(prompt)
+
+            # Record LLM call
+            self._record_llm_call('question', prompt, response)
+
             match = ANSWER_REGEX.search(response)
             if match:
                 return match.group(1).strip()
@@ -179,6 +231,10 @@ class LLMAgent(ta.agents.OpenRouterAgent):
         log_prompt("MOVE", prompt)
         for _ in range(max_retries):
             response = self.openrouter_agent(prompt)
+
+            # Record LLM call
+            self._record_llm_call('move', prompt, response)
+
             # Extract move using regex for <answer></answer> tags
             match = ANSWER_REGEX.search(response)
             if match:
@@ -314,6 +370,12 @@ class LLMAgent(ta.agents.OpenRouterAgent):
         for _ in range(max_retries):
             logger.debug(f"[Attempt {_}] Simulating answers for {len(words)} words and question: {question}")
             response = self.sampling_agent(prompt)
+
+            # Record LLM call
+            self._record_llm_call('consistency', prompt, response, {
+                'question': question,
+                'num_words': len(words)
+            })
 
             # Extract answer using regex for <answer></answer> tags
             match = ANSWER_REGEX.search(response)
@@ -466,6 +528,15 @@ class EIGQuestionMixin:
         logger.info(f"Current entropy: {current_entropy:.3f}")
         logger.info("=" * 60)
 
+        # Initialize turn-specific EIG tracking
+        if not hasattr(self.diagnostics['turns'][-1], '__getitem__'):
+            # If turns[-1] is not dict-like, we have a problem
+            pass
+        else:
+            self.diagnostics['turns'][-1]['candidate_questions'] = []
+            self.diagnostics['turns'][-1]['eig_values'] = {}
+            self.diagnostics['turns'][-1]['simulated_answers'] = {}
+
         for _ in range(max_retries):
             # Generate k questions in a single batch
             formatted_history = history
@@ -476,10 +547,18 @@ class EIGQuestionMixin:
             if not questions:
                 continue
 
+            # Record candidate questions
+            self.diagnostics['turns'][-1]['candidate_questions'] = questions
+
             # Calculate EIG for all questions
             question_list = []
             def process_question(question):
                 eig = self._calculate_eig(question, history)
+                # Store EIG value
+                self.diagnostics['turns'][-1]['eig_values'][question] = eig
+                # Store simulated answers (already cached)
+                if question in self.simulated_answers_cache:
+                    self.diagnostics['turns'][-1]['simulated_answers'][question] = dict(self.simulated_answers_cache[question])
                 return (question, eig)
 
             logger.info(f"Evaluating {len(questions)} candidate questions...")
@@ -491,6 +570,9 @@ class EIGQuestionMixin:
                 logger.info(f"  {i+1}. EIG={eig:.3f} | {q}")
 
             best_question, best_eig = sorted(question_list, key=lambda x: x[1], reverse=True)[0]
+            self.diagnostics['turns'][-1]['selected_question'] = best_question
+            self.diagnostics['turns'][-1]['selected_eig'] = best_eig
+
             logger.info(f"✓ Selected (EIG={best_eig:.3f}): {best_question}")
             logger.info("=" * 60)
             return best_question
@@ -512,6 +594,10 @@ class EIGQuestionMixin:
         log_prompt("BATCH QUESTION", prompt)
         for _ in range(max_retries):
             response = self.openrouter_agent(prompt)
+
+            # Record LLM call
+            self._record_llm_call('batch_question', prompt, response, {'k': k})
+
             match = ANSWER_REGEX.search(response)
 
             if match:

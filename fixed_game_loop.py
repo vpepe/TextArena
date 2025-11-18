@@ -128,6 +128,11 @@ def run_single_game(model_name, gamemaster_model, agent_type, game_id, run_id, e
         end_time = time.time()
         game_duration = end_time - start_time
 
+        # Retrieve diagnostics from agent if available
+        diagnostics = None
+        if hasattr(agent, 'get_diagnostics'):
+            diagnostics = agent.get_diagnostics()
+
         # Create game result
         game_result = {
             'game_id': game_id,
@@ -142,7 +147,8 @@ def run_single_game(model_name, gamemaster_model, agent_type, game_id, run_id, e
             'game_info': game_info,
             'turn_count': turn_count,
             'game_duration': game_duration,
-            'timestamp': datetime.datetime.now().isoformat()
+            'timestamp': datetime.datetime.now().isoformat(),
+            'diagnostics': diagnostics
         }
 
         # Save individual game file in games/ subdirectory

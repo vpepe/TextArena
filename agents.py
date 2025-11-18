@@ -136,6 +136,9 @@ class LLMAgent(ta.agents.OpenRouterAgent):
             'belief_state_before': dict(self.belief_distribution)
         }
 
+        # Add turn data early so question() method can access and modify it
+        self.diagnostics['turns'].append(turn_data)
+
         # Process new question-answer pairs to update beliefs (passive tracking for all agents)
         self._process_history_for_beliefs(game_history)
 
@@ -161,9 +164,6 @@ class LLMAgent(ta.agents.OpenRouterAgent):
             turn_data['action_type'] = 'question'
 
         turn_data['action'] = action
-
-        # Save turn data
-        self.diagnostics['turns'].append(turn_data)
 
         return action
 
@@ -529,13 +529,9 @@ class EIGQuestionMixin:
         logger.info("=" * 60)
 
         # Initialize turn-specific EIG tracking
-        if not hasattr(self.diagnostics['turns'][-1], '__getitem__'):
-            # If turns[-1] is not dict-like, we have a problem
-            pass
-        else:
-            self.diagnostics['turns'][-1]['candidate_questions'] = []
-            self.diagnostics['turns'][-1]['eig_values'] = {}
-            self.diagnostics['turns'][-1]['simulated_answers'] = {}
+        self.diagnostics['turns'][-1]['candidate_questions'] = []
+        self.diagnostics['turns'][-1]['eig_values'] = {}
+        self.diagnostics['turns'][-1]['simulated_answers'] = {}
 
         for _ in range(max_retries):
             # Generate k questions in a single batch

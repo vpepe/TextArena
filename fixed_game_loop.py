@@ -11,6 +11,7 @@ import argparse
 import traceback
 import logging
 import sys
+import random
 from rich.progress import Progress, SpinnerColumn, BarColumn, TextColumn, TimeElapsedColumn, TimeRemainingColumn
 from rich.logging import RichHandler
 from rich.console import Console
@@ -27,9 +28,45 @@ def thread_safe_log(level, message):
     with log_lock:
         logger.log(level, message)
 
-def run_single_game(model_name, gamemaster_model, agent_type, game_id, run_id, experiment_dir):
+def load_word_list(theme="iclr", hardcore=False):
+    """Load word list from the TwentyQuestions words file"""
+    import importlib.resources
+    with importlib.resources.files('textarena.envs.TwentyQuestions').joinpath('twenty_questions_words.json').open('r') as f:
+        word_data = json.load(f)
+    category = "hardcore" if hardcore else "basic"
+    words = word_data.get(category, {}).get(theme, [])
+    if not words:
+        raise ValueError(f"No words found for theme '{theme}' in category '{category}'")
+    return words
+
+def generate_word_assignments(games_per_model, seed, theme="iclr"):
+    """
+    Generate deterministic word assignments ensuring same run_id gets same word
+    across all agent types and models.
+
+    Returns: dict mapping run_id -> word
+    """
+    random.seed(seed)
+    words = load_word_list(theme=theme)
+
+    # Shuffle words for variety, but deterministically based on seed
+    shuffled_words = words.copy()
+    random.shuffle(shuffled_words)
+
+    # Create word assignment: same run_id gets same word across all conditions
+    word_assignments = {}
+    for run_id in range(1, games_per_model + 1):
+        # Use modulo to cycle through words if we need more runs than available words
+        word_assignments[run_id] = shuffled_words[(run_id - 1) % len(shuffled_words)]
+
+    return word_assignments
+
+def run_single_game(model_name, gamemaster_model, agent_type, game_id, run_id, experiment_dir, target_word=None):
     """
     Run a single game with specified models and agent type
+
+    Args:
+        target_word: If provided, use this specific word instead of random selection
     """
     try:
         # Initialize base agent for 20 Questions
@@ -40,8 +77,8 @@ def run_single_game(model_name, gamemaster_model, agent_type, game_id, run_id, e
         # Change the gamemaster model (before reset)
         env.gamemaster = ta.agents.OpenRouterAgent(model_name=gamemaster_model)
 
-        # Reset the environment for single player
-        env.reset(num_players=1, game_theme="iclr")
+        # Reset the environment for single player, optionally with assigned word
+        env.reset(num_players=1, game_theme="iclr", target_word=target_word)
 
         # Extract ground truth after reset
         ground_truth_word = env.game_word
@@ -136,7 +173,7 @@ def run_single_game(model_name, gamemaster_model, agent_type, game_id, run_id, e
         }
 
 def run_parallel_experiments(models, gamemaster_model="openai/gpt-4o", agent_types=["LLM", "Bayes-M", "Bayes-Q", "Bayes-QM"],
-                           games_per_model=5, max_workers=10, cli_command=None):
+                           games_per_model=5, max_workers=10, cli_command=None, seed=42):
     """
     Run multiple games in parallel across different models and agent types
 
@@ -147,11 +184,15 @@ def run_parallel_experiments(models, gamemaster_model="openai/gpt-4o", agent_typ
         games_per_model: Number of games to run per model per agent type
         max_workers: Maximum number of concurrent threads
         cli_command: The original CLI command string for reproducibility
+        seed: Random seed for deterministic word selection
     """
     # Create experiment directory with timestamp
     timestamp = datetime.datetime.now().strftime('%Y_%m_%d_%H%M%S')
     experiment_dir = os.path.join('experiments', f'run_{timestamp}')
     os.makedirs(experiment_dir, exist_ok=True)
+
+    # Generate deterministic word assignments
+    word_assignments = generate_word_assignments(games_per_model, seed=seed, theme="iclr")
 
     # Save CLI command to args.txt
     args_file = os.path.join(experiment_dir, 'args.txt')
@@ -160,6 +201,11 @@ def run_parallel_experiments(models, gamemaster_model="openai/gpt-4o", agent_typ
             f.write(cli_command + '\n')
         else:
             f.write('# CLI command not available\n')
+
+    # Save word assignments to file
+    word_assignments_file = os.path.join(experiment_dir, 'word_assignments.json')
+    with open(word_assignments_file, 'w') as f:
+        json.dump(word_assignments, f, indent=2)
 
     # Set up file logging in addition to console
     log_file = os.path.join(experiment_dir, 'log.txt')
@@ -186,7 +232,8 @@ def run_parallel_experiments(models, gamemaster_model="openai/gpt-4o", agent_typ
                     'gamemaster_model': gamemaster_model,
                     'agent_type': agent_type,
                     'game_id': game_id,
-                    'run_id': run
+                    'run_id': run,
+                    'target_word': word_assignments[run]  # Assign word based on run_id
                 })
                 game_id += 1
 
@@ -225,7 +272,8 @@ def run_parallel_experiments(models, gamemaster_model="openai/gpt-4o", agent_typ
                     config['agent_type'],
                     config['game_id'],
                     config['run_id'],
-                    experiment_dir
+                    experiment_dir,
+                    config['target_word']
                 ): config for config in game_configs
             }
 
@@ -322,6 +370,13 @@ if __name__ == "__main__":
         help='Show LLM prompts at INFO level (default: False)'
     )
 
+    parser.add_argument(
+        '--seed',
+        type=int,
+        default=42,
+        help='Random seed for deterministic word selection (default: 42)'
+    )
+
     args = parser.parse_args()
 
     # Configure logging with Rich
@@ -350,7 +405,8 @@ if __name__ == "__main__":
         agent_types=args.agent_types,
         games_per_model=args.games_per_model,
         max_workers=args.max_workers,
-        cli_command=cli_command
+        cli_command=cli_command,
+        seed=args.seed
     )
 
     # Print some summary statistics

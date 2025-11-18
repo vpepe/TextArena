@@ -65,7 +65,7 @@ class TwentyQuestionsEnv(ta.Env):
         else: self.gamemaster_history.append((action, "I'm sorry, I don't understand. Please try asking again."))  # Log fallback response
         return response
 
-    def reset(self, num_players: int, game_theme: Optional[str] = None, seed: Optional[int] = None):
+    def reset(self, num_players: int, game_theme: Optional[str] = None, seed: Optional[int] = None, target_word: Optional[str] = None):
         self.state = ta.SinglePlayerState(num_players=num_players, seed=seed, max_turns=self.max_turns)
         ## load the game word
         if game_theme is None:
@@ -73,7 +73,11 @@ class TwentyQuestionsEnv(ta.Env):
         else:
             self.game_theme = game_theme
 
-        self.game_word = random.choice(self.word_list[self.game_theme])
+        # Use provided target_word if specified, otherwise randomly select
+        if target_word is not None:
+            self.game_word = target_word
+        else:
+            self.game_word = random.choice(self.word_list[self.game_theme])
 
         self.gamemaster_context = (
             f"You are playing 20 Questions. You are thinking of a word, '{self.game_word}'. \n Your task is to provide honest answers to the other player's yes-or-no questions to guide them towards finding the word you are thinking of (you both win if the other player guesses the word, and you both lose if they do not). \n Be sure to provide answers that are truthful and helpful, which may include some nuance and inference about what the other player may be thinking: for example, if the word is 'pharmacist', and the question is 'Does the profession deal with numbers or financial data?', while it is technically true that pharmacists deal with numbers, the best answer is 'No', since the question is likely trying to determine if the word is related to finance or accounting. You should only respond with one of the following options: {', '.join(self.gamemaster_options)}. \n Please think about your answer step-by-step before responding, and wrap your final answer in <answer></answer> tags, e.g. <answer>Yes</answer>."

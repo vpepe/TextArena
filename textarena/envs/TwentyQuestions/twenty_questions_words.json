@@ -1,15 +1,18 @@
 {
     "basic": {
         "iclr": [
-                "school",
-                "hospital",
-                "restaurant",
-                "teacher",
-                "doctor",
-                "nurse",
-                "apple",
-                "banana",
-                "table"
+            "school",
+            "hospital",
+            "restaurant",
+            "library",
+            "teacher",
+            "doctor",
+            "nurse",
+            "firefighter",
+            "apple",
+            "banana",
+            "table",
+            "chair"
         ],
         "places": [
             "school",

@@ -7,6 +7,7 @@ import numpy as np
 import ast
 from concurrent.futures import ThreadPoolExecutor
 import importlib.resources
+import random
 
 logger = logging.getLogger(__name__)
 
@@ -14,6 +15,7 @@ logger = logging.getLogger(__name__)
 ENABLED_PROMPT_TYPES = set()  # Set of prompt types to show (e.g., {'DECISION', 'QUESTION'})
 
 EPSILON = 0.1  # Noise parameter for answers
+TOP_N_BELIEFS = 10  # Number of top beliefs to show in prompts
 BLANK_HISTORY_PLACEHOLDER = "(no history yet)"
 ANSWER_REGEX = re.compile(r'<answer>(.*?)</answer>', re.IGNORECASE | re.DOTALL)
 
@@ -120,9 +122,35 @@ class LLMAgent(ta.agents.OpenRouterAgent):
         """Get the base prompt template. Override in subclasses for different prompts."""
         return BASE_PROMPT
 
-    def _format_belief_state(self):
-        """Format belief state for prompts. Used by Bayesian agents."""
-        sorted_beliefs = sorted(self.belief_distribution.items(), key=lambda x: x[1], reverse=True)
+    def _get_sorted_beliefs(self):
+        """
+        Get belief distribution sorted by probability (descending) with random tiebreaking.
+        Uses deterministic seeding so the same belief state always produces the same order.
+        Returns list of (word, probability) tuples.
+        """
+        # Create a deterministic seed from the belief distribution
+        # Sort by word name first to ensure consistent ordering for hashing
+        sorted_for_hash = sorted(self.belief_distribution.items())
+        # Create a hash of the probabilities (rounded to avoid floating point issues)
+        seed_str = ''.join(f"{word}:{prob:.10f}" for word, prob in sorted_for_hash)
+        seed = hash(seed_str) % (2**32)
+
+        # Create a local Random instance with this seed
+        local_random = random.Random(seed)
+
+        # Sort with deterministic random tiebreaking
+        return sorted(self.belief_distribution.items(), key=lambda x: (-x[1], local_random.random()))
+
+    def _format_belief_state(self, top_n: int = None):
+        """
+        Format belief state for prompts. Used by Bayesian agents.
+        Args:
+            top_n: Number of top beliefs to show (defaults to TOP_N_BELIEFS)
+        """
+        if top_n is None:
+            top_n = TOP_N_BELIEFS
+
+        sorted_beliefs = self._get_sorted_beliefs()[:top_n]
         return "\n".join(f"{i+1}. {word}: {prob:.3f}" for i, (word, prob) in enumerate(sorted_beliefs))
 
     def __call__(self, game_history: list) -> str:
@@ -142,7 +170,7 @@ class LLMAgent(ta.agents.OpenRouterAgent):
         self._process_history_for_beliefs(game_history)
 
         # Record belief state before asking this turn's question (after incorporating previous answer)
-        turn_data['belief_state_before_question'] = dict(self.belief_distribution)
+        turn_data['belief_state_before_question'] = dict(self._get_sorted_beliefs())
         turn_data['entropy'] = shannon_entropy(list(self.belief_distribution.values()))
 
         # Update game history
@@ -156,7 +184,7 @@ class LLMAgent(ta.agents.OpenRouterAgent):
         turn_data['decision'] = decision
 
         if DecisionType.GUESS == decision or remaining_questions == 0:
-            action = self.move(formatted_history)
+            action = self.move(formatted_history, remaining_questions=remaining_questions)
             turn_data['action_type'] = 'guess'
         else:
             action = self.question(history=formatted_history, remaining_questions=remaining_questions)
@@ -171,9 +199,10 @@ class LLMAgent(ta.agents.OpenRouterAgent):
         context = self.get_base_prompt().format(
             word_list=self.word_data,
             history=history,
-            belief_state=self._format_belief_state()
+            remaining_questions=remaining_questions,
+            belief_state=self._format_belief_state(),
         )
-        prompt = DECISION_PROMPT.format(context=context, remaining_questions=remaining_questions)
+        prompt = DECISION_PROMPT.format(context=context)
 
         log_prompt("DECISION", prompt)
         for _ in range(max_retries):
@@ -194,16 +223,35 @@ class LLMAgent(ta.agents.OpenRouterAgent):
         else:
             raise ValueError(f"Unexpected decision: {response}")
 
+    def _process_question(self, question: str, history: str, remaining_questions: int):
+        """
+        Process a question by calculating its EIG and storing diagnostics.
+        Returns tuple of (question, eig).
+        """
+        eig = self._calculate_eig(question, history, remaining_questions)
+        # Store EIG value
+        self.diagnostics['turns'][-1]['eig_values'][question] = eig
+        # Store simulated answers (already cached)
+        if question in self.simulated_answers_cache:
+            self.diagnostics['turns'][-1]['simulated_answers'][question] = dict(self.simulated_answers_cache[question])
+        return (question, eig)
+
     def question(self, history: str, remaining_questions: int = 20, max_retries: int = 10) -> str:
         """Ask the agent for a question"""
         context = self.get_base_prompt().format(
             word_list=self.word_data,
             history=history,
-            belief_state=self._format_belief_state()
+            remaining_questions=remaining_questions,
+            belief_state=self._format_belief_state(),
         )
-        prompt = QUESTION_PROMPT.format(context=context, remaining_questions=remaining_questions)
-
+        prompt = QUESTION_PROMPT.format(context=context)
         log_prompt("QUESTION", prompt)
+
+        # Initialize turn-specific EIG tracking
+        self.diagnostics["turns"][-1]["candidate_questions"] = []
+        self.diagnostics["turns"][-1]["eig_values"] = {}
+        self.diagnostics["turns"][-1]["simulated_answers"] = {}
+
         for _ in range(max_retries):
             response = self.openrouter_agent(prompt)
 
@@ -212,20 +260,23 @@ class LLMAgent(ta.agents.OpenRouterAgent):
 
             match = ANSWER_REGEX.search(response)
             if match:
-                return match.group(1).strip()
+                question = match.group(1).strip()
+                self._process_question(question, history, remaining_questions)
+                return question
             logger.warning(f"Attempt {_} failed to parse question from response")
         else:
             raise ValueError(f"Unexpected response: {response}")
 
-    def move(self, history: str, max_retries: int = 10) -> str:
+    def move(self, history: str, remaining_questions: int = 20, max_retries: int = 10) -> str:
         """Ask the agent for a move (final guess)"""
         context = self.get_base_prompt().format(
             word_list=self.word_data,
             history=history,
-            belief_state=self._format_belief_state()
+            remaining_questions=remaining_questions,
+            belief_state=self._format_belief_state(),
         )
 
-        prompt = MOVE_PROMPT.format(context=context, objects=self.word_data)
+        prompt = MOVE_PROMPT.format(context=context, word_list=self.word_data)
 
         log_prompt("MOVE", prompt)
         for _ in range(max_retries):
@@ -310,9 +361,7 @@ class LLMAgent(ta.agents.OpenRouterAgent):
 
         # Check if we have cached simulated answers for this question
         if question not in self.simulated_answers_cache:
-            # If not cached, simulate answers for all words
-            words_to_simulate = [word for word in self.belief_distribution.keys()]
-            self._simulate_answer(question, words_to_simulate, history)
+            raise ValueError(f"Question not in cache: {question}")
 
         simulated_answers = self.simulated_answers_cache[question]
 
@@ -350,13 +399,13 @@ class LLMAgent(ta.agents.OpenRouterAgent):
 
         self.belief_distribution = {word: p / total_prob for word, p in new_beliefs.items()}
 
-        # Show top beliefs
-        top_words = sorted(self.belief_distribution.items(), key=lambda x: x[1], reverse=True)
+        # Show top beliefs (with random tiebreaking)
+        top_words = self._get_sorted_beliefs()
         beliefs_str = ", ".join(f"{w}:{p:.2f}" for w, p in top_words)
         entropy = shannon_entropy(list(self.belief_distribution.values()))
         logger.info(f"Top beliefs: [{beliefs_str}] | Entropy: {entropy:.3f}")
 
-    def _simulate_answer(self, question: str, words: list, history, max_retries: int = 10):
+    def _simulate_answer(self, question: str, words: list, history, remaining_questions: int = 20, max_retries: int = 10):
         """
         Simulate what answers the gamemaster would give for all words in a single LLM call.
         Returns a dict mapping word -> answer
@@ -369,8 +418,8 @@ class LLMAgent(ta.agents.OpenRouterAgent):
 
         formatted_history = history
         # Use BASE_PROMPT directly for consistency checks (not belief-aware)
-        context = BASE_PROMPT.format(word_list=self.word_data, history=formatted_history)
-        prompt = CONSISTENCY_PROMPT.format(context=context, question=question, objects=words)
+        context = BASE_PROMPT.format(word_list=self.word_data, history=formatted_history, remaining_questions=remaining_questions)
+        prompt = CONSISTENCY_PROMPT.format(context=context, question=question)
 
         log_prompt("CONSISTENCY", prompt)
         for _ in range(max_retries):
@@ -436,7 +485,7 @@ class LLMAgent(ta.agents.OpenRouterAgent):
         else:
             raise ValueError(f"Failed to simulate answers after {max_retries} attempts")
 
-    def _calculate_eig(self, question: str, history):
+    def _calculate_eig(self, question: str, history, remaining_questions):
         """
         Calculate Expected Information Gain for a question.
         EIG = H(current_beliefs) - E[H(beliefs | answer)]
@@ -451,7 +500,7 @@ class LLMAgent(ta.agents.OpenRouterAgent):
         words_to_simulate = list(self.belief_distribution.keys())
 
         # Simulate answers for all words in a single batch call
-        simulated_answers = self._simulate_answer(question, words_to_simulate, history)
+        simulated_answers = self._simulate_answer(question, words_to_simulate, history, remaining_questions=remaining_questions)
 
         # Calculate expected posterior entropy
         expected_posterior_entropy = 0.0
@@ -500,19 +549,27 @@ class LLMAgent(ta.agents.OpenRouterAgent):
     def _move_belief(self) -> str:
         """
         Helper method to make a final guess based on the belief distribution.
-        Returns the word with maximum probability.
+        Returns the word with maximum probability (random tiebreaking if multiple words have max prob).
         """
-        # Find word with maximum probability
-        max_word = max(self.belief_distribution.items(), key=lambda x: x[1])
-        word, prob = max_word
+        # Find maximum probability
+        max_prob = max(self.belief_distribution.values())
 
-        # Show top 5 candidates
-        top_5 = sorted(self.belief_distribution.items(), key=lambda x: x[1], reverse=True)[:5]
+        # Find all words with maximum probability
+        max_words = [word for word, prob in self.belief_distribution.items() if prob == max_prob]
+
+        # Randomly select among tied words
+        word = random.choice(max_words)
+        prob = max_prob
+
+        # Show top 5 candidates (with random tiebreaking)
+        top_5 = self._get_sorted_beliefs()[:5]
         candidates_str = ", ".join(f"{w}:{p:.2f}" for w, p in top_5)
 
         logger.info("=" * 60)
         logger.info(f"FINAL GUESS (belief-based)")
         logger.info(f"Selected: '{word}' (p={prob:.4f})")
+        if len(max_words) > 1:
+            logger.info(f"Tied words ({len(max_words)}): {max_words}")
         logger.info(f"Top 5: [{candidates_str}]")
         logger.info("=" * 60)
 
@@ -522,6 +579,28 @@ class LLMAgent(ta.agents.OpenRouterAgent):
 
 class EIGQuestionMixin:
     """Mixin that provides EIG-based question selection"""
+
+    def _sort_questions_by_eig(self, question_list):
+        """
+        Sort questions by EIG (descending) with random tiebreaking.
+        Uses deterministic seeding so the same question set always produces the same order.
+        Args:
+            question_list: List of (question, eig) tuples
+        Returns:
+            Sorted list of (question, eig) tuples
+        """
+        # Create a deterministic seed from the question list
+        # Sort by question text first to ensure consistent ordering for hashing
+        sorted_for_hash = sorted(question_list, key=lambda x: x[0])
+        # Create a hash of the questions and EIG values
+        seed_str = ''.join(f"{q}:{eig:.10f}" for q, eig in sorted_for_hash)
+        seed = hash(seed_str) % (2**32)
+
+        # Create a local Random instance with this seed
+        local_random = random.Random(seed)
+
+        # Sort with deterministic random tiebreaking
+        return sorted(question_list, key=lambda x: (-x[1], local_random.random()))
 
     def question(self, history, remaining_questions=20, max_retries: int = 5) -> str:
         """Generate question with highest Expected Information Gain"""
@@ -542,7 +621,12 @@ class EIGQuestionMixin:
         for _ in range(max_retries):
             # Generate k questions in a single batch
             formatted_history = history
-            context = self.get_base_prompt().format(word_list=self.word_data, history=formatted_history, belief_state=self._format_belief_state())
+            context = self.get_base_prompt().format(
+                word_list=self.word_data,
+                history=formatted_history,
+                remaining_questions=remaining_questions,
+                belief_state=self._format_belief_state(),
+            )
 
             questions = self._generate_batch_questions(context, remaining_questions, self.k, max_retries)
 
@@ -552,26 +636,21 @@ class EIGQuestionMixin:
             # Record candidate questions
             self.diagnostics['turns'][-1]['candidate_questions'] = questions
 
-            # Calculate EIG for all questions
-            question_list = []
-            def process_question(question):
-                eig = self._calculate_eig(question, history)
-                # Store EIG value
-                self.diagnostics['turns'][-1]['eig_values'][question] = eig
-                # Store simulated answers (already cached)
-                if question in self.simulated_answers_cache:
-                    self.diagnostics['turns'][-1]['simulated_answers'][question] = dict(self.simulated_answers_cache[question])
-                return (question, eig)
-
+            # Calculate EIG for all questions using the shared _process_question method
             logger.info(f"Evaluating {len(questions)} candidate questions...")
             with ThreadPoolExecutor(max_workers=max(len(questions), 4)) as executor:
-                question_list = list(executor.map(process_question, questions))
+                question_list = list(executor.map(
+                    lambda q: self._process_question(q, history, remaining_questions),
+                    questions
+                ))
 
-            logger.info(f"Top {min(5, len(question_list))} questions by EIG:")
-            for i, (q, eig) in enumerate(sorted(question_list, key=lambda x: x[1], reverse=True)[:5]):
+            sorted_questions = self._sort_questions_by_eig(question_list)
+
+            logger.info(f"Top {min(10, len(question_list))} questions by EIG:")
+            for i, (q, eig) in enumerate(sorted_questions[:10]):
                 logger.info(f"  {i+1}. EIG={eig:.3f} | {q}")
 
-            best_question, best_eig = sorted(question_list, key=lambda x: x[1], reverse=True)[0]
+            best_question, best_eig = sorted_questions[0]
             self.diagnostics['turns'][-1]['selected_question'] = best_question
             self.diagnostics['turns'][-1]['selected_eig'] = best_eig
 
@@ -588,12 +667,10 @@ class EIGQuestionMixin:
 
         prompt = EIG_QUESTION_PROMPT.format(
             context=context,
-            remaining_questions=remaining_questions,
             k=k,
-            belief_state=self._format_belief_state(),
         )
 
-        log_prompt("BATCH QUESTION", prompt)
+        log_prompt("QUESTION", prompt)
         for _ in range(max_retries):
             response = self.openrouter_agent(prompt)
 
@@ -636,7 +713,7 @@ class BayesMAgent(LLMAgent):
         """Use BELIEF_PROMPT to show belief state in all prompts"""
         return BELIEF_PROMPT
 
-    def move(self, history: str) -> str:
+    def move(self, history: str, remaining_questions: int) -> str:
         """Make final guess based on belief distribution"""
         return self._move_belief()
 
@@ -664,6 +741,6 @@ class BayesQMAgent(EIGQuestionMixin, LLMAgent):
         """Use BELIEF_PROMPT to show belief state in all prompts"""
         return BELIEF_PROMPT
 
-    def move(self, history: str) -> str:
+    def move(self, history: str, remaining_questions: int) -> str:
         """Make final guess based on belief distribution"""
         return self._move_belief()

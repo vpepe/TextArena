@@ -374,11 +374,17 @@ if __name__ == "__main__":
     )
 
     parser.add_argument(
-        '--show-prompts',
-        nargs='*',
-        choices=['DECISION', 'QUESTION', 'MOVE', 'CONSISTENCY', 'BATCH_QUESTION', 'ALL'],
+        "--show-prompts",
+        nargs="*",
+        choices=[
+            "DECISION",
+            "QUESTION",
+            "MOVE",
+            "CONSISTENCY",
+            "ALL",
+        ],
         default=None,
-        help='Show specific LLM prompt types at INFO level. Options: DECISION, QUESTION, MOVE, CONSISTENCY, BATCH_QUESTION, ALL. Use --show-prompts without arguments to show all prompts. Example: --show-prompts QUESTION MOVE'
+        help="Show specific LLM prompt types at INFO level. Options: DECISION, QUESTION, MOVE, CONSISTENCY, ALL. Use --show-prompts without arguments to show all prompts. Example: --show-prompts QUESTION MOVE",
     )
 
     parser.add_argument(

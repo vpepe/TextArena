@@ -10,6 +10,7 @@ import time
 import argparse
 import traceback
 import logging
+import sys
 
 load_dotenv()
 
@@ -23,7 +24,7 @@ def thread_safe_log(level, message):
     with log_lock:
         logger.log(level, message)
 
-def run_single_game(model_name, gamemaster_model, agent_type, game_id, run_id):
+def run_single_game(model_name, gamemaster_model, agent_type, game_id, run_id, experiment_dir):
     """
     Run a single game with specified models and agent type
     """
@@ -103,15 +104,16 @@ def run_single_game(model_name, gamemaster_model, agent_type, game_id, run_id):
             'timestamp': datetime.datetime.now().isoformat()
         }
 
-        # Save individual game file
-        os.makedirs('experiments', exist_ok=True)
+        # Save individual game file in games/ subdirectory
+        games_dir = os.path.join(experiment_dir, 'games')
+        os.makedirs(games_dir, exist_ok=True)
         timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S_%f')[:-3]  # Include microseconds
-        filename = f'experiments/game_{model_name.replace("/", "_")}_{agent_type}_{run_id}_{timestamp}.json'
+        filename = os.path.join(games_dir, f'game_{model_name.replace("/", "_")}_{agent_type}_{run_id}_{timestamp}.json')
 
         with open(filename, 'w') as f:
             json.dump(game_result, f, indent=2)
 
-        thread_safe_log(logging.INFO, f"✅ Game {game_id} (Run {run_id}) completed: {model_name} ({agent_type}) - {turn_count} turns, {game_duration:.1f}s - {filename}")
+        thread_safe_log(logging.INFO, f"✅ Game {game_id} (Run {run_id}) completed: {model_name} ({agent_type}) - {turn_count} turns, {game_duration:.1f}s")
 
         return game_result
 
@@ -131,7 +133,7 @@ def run_single_game(model_name, gamemaster_model, agent_type, game_id, run_id):
         }
 
 def run_parallel_experiments(models, gamemaster_model="openai/gpt-4o", agent_types=["LLM", "Bayes-M", "Bayes-Q", "Bayes-QM"],
-                           games_per_model=5, max_workers=10):
+                           games_per_model=5, max_workers=10, cli_command=None):
     """
     Run multiple games in parallel across different models and agent types
 
@@ -141,7 +143,34 @@ def run_parallel_experiments(models, gamemaster_model="openai/gpt-4o", agent_typ
         agent_types: List of agent types to test ["LLM", "Bayes-M", "Bayes-Q", "Bayes-QM"]
         games_per_model: Number of games to run per model per agent type
         max_workers: Maximum number of concurrent threads
+        cli_command: The original CLI command string for reproducibility
     """
+    # Create experiment directory with timestamp
+    timestamp = datetime.datetime.now().strftime('%Y_%m_%d_%H%M%S')
+    experiment_dir = os.path.join('experiments', f'run_{timestamp}')
+    os.makedirs(experiment_dir, exist_ok=True)
+
+    # Save CLI command to args.txt
+    args_file = os.path.join(experiment_dir, 'args.txt')
+    with open(args_file, 'w') as f:
+        if cli_command:
+            f.write(cli_command + '\n')
+        else:
+            f.write('# CLI command not available\n')
+
+    # Set up file logging in addition to console
+    log_file = os.path.join(experiment_dir, 'log.txt')
+    file_handler = logging.FileHandler(log_file)
+    file_handler.setLevel(logging.DEBUG)  # Log everything to file
+    file_handler.setFormatter(logging.Formatter(
+        '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    ))
+    logging.getLogger().addHandler(file_handler)
+
+    thread_safe_log(logging.INFO, f"📁 Experiment directory: {experiment_dir}")
+    thread_safe_log(logging.INFO, f"📝 Log file: {log_file}")
+
     # Create all game configurations
     game_configs = []
     game_id = 1
@@ -179,7 +208,8 @@ def run_parallel_experiments(models, gamemaster_model="openai/gpt-4o", agent_typ
                 config['gamemaster_model'],
                 config['agent_type'],
                 config['game_id'],
-                config['run_id']
+                config['run_id'],
+                experiment_dir
             ): config for config in game_configs
         }
 
@@ -212,15 +242,14 @@ def run_parallel_experiments(models, gamemaster_model="openai/gpt-4o", agent_typ
         'results': results
     }
 
-    timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
-    summary_filename = f'experiments/experiment_summary_{timestamp}.json'
+    summary_filename = os.path.join(experiment_dir, 'summary.json')
 
     with open(summary_filename, 'w') as f:
         json.dump(summary, f, indent=2)
 
     thread_safe_log(logging.INFO, f"\n🎉 Experiment completed!")
     thread_safe_log(logging.INFO, f"Total time: {(time.time() - start_time)/60:.1f} minutes")
-    thread_safe_log(logging.INFO, f"Summary saved to: {summary_filename}")
+    thread_safe_log(logging.INFO, f"Results saved to: {experiment_dir}")
 
     return results
 
@@ -295,13 +324,17 @@ if __name__ == "__main__":
     import agents
     agents.SHOW_PROMPTS = args.show_prompts
 
+    # Construct CLI command for reproducibility
+    cli_command = ' '.join(sys.argv)
+
     # Run experiments with both agent types
     results = run_parallel_experiments(
         models=args.models,
         gamemaster_model=args.gamemaster_model,
         agent_types=args.agent_types,
         games_per_model=args.games_per_model,
-        max_workers=args.max_workers
+        max_workers=args.max_workers,
+        cli_command=cli_command
     )
 
     # Print some summary statistics

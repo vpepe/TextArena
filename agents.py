@@ -132,9 +132,11 @@ class LLMAgent(ta.agents.OpenRouterAgent):
 
         # Initialize turn diagnostics
         turn_data = {
-            'turn_number': self.diagnostics['current_turn'],
-            'belief_state_before': dict(self.belief_distribution)
+            'turn_number': self.diagnostics['current_turn']
         }
+
+        # Record belief state before processing new answers (after previous question)
+        turn_data['belief_state_after_previous_question'] = dict(self.belief_distribution)
 
         # Add turn data early so question() method can access and modify it
         self.diagnostics['turns'].append(turn_data)
@@ -142,8 +144,8 @@ class LLMAgent(ta.agents.OpenRouterAgent):
         # Process new question-answer pairs to update beliefs (passive tracking for all agents)
         self._process_history_for_beliefs(game_history)
 
-        # Record belief state after update
-        turn_data['belief_state_after'] = dict(self.belief_distribution)
+        # Record belief state before asking this turn's question (after incorporating previous answer)
+        turn_data['belief_state_before_question'] = dict(self.belief_distribution)
         turn_data['entropy'] = shannon_entropy(list(self.belief_distribution.values()))
 
         # Update game history

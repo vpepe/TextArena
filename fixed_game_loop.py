@@ -11,6 +11,9 @@ import argparse
 import traceback
 import logging
 import sys
+from rich.progress import Progress, SpinnerColumn, BarColumn, TextColumn, TimeElapsedColumn, TimeRemainingColumn
+from rich.logging import RichHandler
+from rich.console import Console
 
 load_dotenv()
 
@@ -44,7 +47,7 @@ def run_single_game(model_name, gamemaster_model, agent_type, game_id, run_id, e
         ground_truth_word = env.game_word
         ground_truth_theme = env.game_theme
 
-        thread_safe_log(logging.INFO, f"🎯 Game {game_id} (Run {run_id}) - Target: '{ground_truth_word}' (theme: {ground_truth_theme})")
+        thread_safe_log(logging.DEBUG, f"🎯 Game {game_id} (Run {run_id}) - Target: '{ground_truth_word}' (theme: {ground_truth_theme})")
 
         # Initialize agent based on type
         if agent_type == "LLM":
@@ -113,7 +116,7 @@ def run_single_game(model_name, gamemaster_model, agent_type, game_id, run_id, e
         with open(filename, 'w') as f:
             json.dump(game_result, f, indent=2)
 
-        thread_safe_log(logging.INFO, f"✅ Game {game_id} (Run {run_id}) completed: {model_name} ({agent_type}) - {turn_count} turns, {game_duration:.1f}s")
+        thread_safe_log(logging.DEBUG, f"✅ Game {game_id} (Run {run_id}) completed: {model_name} ({agent_type}) - {turn_count} turns, {game_duration:.1f}s")
 
         return game_result
 
@@ -197,35 +200,47 @@ def run_parallel_experiments(models, gamemaster_model="openai/gpt-4o", agent_typ
     # Run games in parallel
     results = []
     completed_games = 0
+    failed_games = 0
     start_time = time.time()
 
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        # Submit all games
-        future_to_config = {
-            executor.submit(
-                run_single_game,
-                config['model_name'],
-                config['gamemaster_model'],
-                config['agent_type'],
-                config['game_id'],
-                config['run_id'],
-                experiment_dir
-            ): config for config in game_configs
-        }
+    # Create progress bar with Rich
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+        TextColumn("({task.completed}/{task.total})"),
+        TimeElapsedColumn(),
+        TimeRemainingColumn(),
+    ) as progress:
+        task = progress.add_task("[cyan]Running games...", total=total_games)
 
-        # Process completed games
-        for future in as_completed(future_to_config):
-            result = future.result()
-            results.append(result)
-            completed_games += 1
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # Submit all games
+            future_to_config = {
+                executor.submit(
+                    run_single_game,
+                    config['model_name'],
+                    config['gamemaster_model'],
+                    config['agent_type'],
+                    config['game_id'],
+                    config['run_id'],
+                    experiment_dir
+                ): config for config in game_configs
+            }
 
-            elapsed_time = time.time() - start_time
-            avg_time_per_game = elapsed_time / completed_games if completed_games > 0 else 0
-            estimated_remaining = (total_games - completed_games) * avg_time_per_game
+            # Process completed games
+            for future in as_completed(future_to_config):
+                result = future.result()
+                results.append(result)
+                completed_games += 1
 
-            thread_safe_log(logging.INFO, f"Progress: {completed_games}/{total_games} games completed "
-                            f"({completed_games/total_games*100:.1f}%) - "
-                            f"Est. remaining: {estimated_remaining/60:.1f} min")
+                # Track failures
+                if 'error' in result:
+                    failed_games += 1
+
+                # Update progress bar
+                progress.update(task, advance=1)
 
     # Save summary results
     summary = {
@@ -309,12 +324,13 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    # Configure logging
+    # Configure logging with Rich
     log_level = getattr(logging, args.log_level.upper())
     logging.basicConfig(
         level=log_level,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
+        format='%(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S',
+        handlers=[RichHandler(rich_tracebacks=True, show_time=True, show_path=False)]
     )
 
     # Suppress noisy HTTP logs from httpx

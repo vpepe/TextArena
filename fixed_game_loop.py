@@ -369,9 +369,10 @@ if __name__ == "__main__":
 
     parser.add_argument(
         '--show-prompts',
-        action='store_true',
-        default=False,
-        help='Show LLM prompts at INFO level (default: False)'
+        nargs='*',
+        choices=['DECISION', 'QUESTION', 'MOVE', 'CONSISTENCY', 'BATCH_QUESTION', 'ALL'],
+        default=None,
+        help='Show specific LLM prompt types at INFO level. Options: DECISION, QUESTION, MOVE, CONSISTENCY, BATCH_QUESTION, ALL. Use --show-prompts without arguments to show all prompts. Example: --show-prompts QUESTION MOVE'
     )
 
     parser.add_argument(
@@ -404,7 +405,19 @@ if __name__ == "__main__":
 
     # Configure prompt logging
     import agents
-    agents.SHOW_PROMPTS = args.show_prompts
+    if args.show_prompts is not None:
+        # If --show-prompts is used without arguments, show all prompts
+        if len(args.show_prompts) == 0 or 'ALL' in args.show_prompts:
+            agents.ENABLED_PROMPT_TYPES = {'DECISION', 'QUESTION', 'MOVE', 'CONSISTENCY', 'BATCH_QUESTION'}
+        else:
+            # Normalize BATCH_QUESTION to "BATCH QUESTION" (with space) as used in agents.py
+            enabled = set(args.show_prompts)
+            if 'BATCH_QUESTION' in enabled:
+                enabled.remove('BATCH_QUESTION')
+                enabled.add('BATCH QUESTION')
+            agents.ENABLED_PROMPT_TYPES = enabled
+    else:
+        agents.ENABLED_PROMPT_TYPES = set()
 
     # Construct CLI command for reproducibility
     cli_command = ' '.join(sys.argv)

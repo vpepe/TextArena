@@ -11,7 +11,7 @@ import importlib.resources
 logger = logging.getLogger(__name__)
 
 # Configuration flags
-SHOW_PROMPTS = False  # Set to True to show LLM prompts at INFO level
+ENABLED_PROMPT_TYPES = set()  # Set of prompt types to show (e.g., {'DECISION', 'QUESTION'})
 
 EPSILON = 0.1  # Noise parameter for answers
 BLANK_HISTORY_PLACEHOLDER = "(no history yet)"
@@ -21,13 +21,13 @@ player_dict = {-1: "GAME", 0: "PLAYER"}
 
 def log_prompt(label: str, prompt):
     """
-    Log a prompt with consistent formatting if SHOW_PROMPTS is enabled.
+    Log a prompt with consistent formatting if the label is in ENABLED_PROMPT_TYPES.
 
     Args:
         label: Description of the prompt (e.g., "DECISION", "QUESTION")
         prompt: Either a string or a list of message dicts
     """
-    if not SHOW_PROMPTS:
+    if label not in ENABLED_PROMPT_TYPES:
         return
 
     # Format the prompt based on its type
@@ -254,6 +254,9 @@ class LLMAgent(ta.agents.OpenRouterAgent):
 
         simulated_answers = self.simulated_answers_cache[question]
 
+        # Show simulated answers
+        logger.info(f"Simulated answers: {simulated_answers}")
+
         # Calculate new unnormalized probabilities
         new_beliefs = {}
         for word, prob in self.belief_distribution.items():
@@ -286,7 +289,7 @@ class LLMAgent(ta.agents.OpenRouterAgent):
         self.belief_distribution = {word: p / total_prob for word, p in new_beliefs.items()}
 
         # Show top beliefs
-        top_words = sorted(self.belief_distribution.items(), key=lambda x: x[1], reverse=True)[:5]
+        top_words = sorted(self.belief_distribution.items(), key=lambda x: x[1], reverse=True)
         beliefs_str = ", ".join(f"{w}:{p:.2f}" for w, p in top_words)
         entropy = shannon_entropy(list(self.belief_distribution.values()))
         logger.info(f"Top beliefs: [{beliefs_str}] | Entropy: {entropy:.3f}")
@@ -398,7 +401,6 @@ class LLMAgent(ta.agents.OpenRouterAgent):
                     posterior_distribution[word] = prob * (1.0 - EPSILON)
                 else:
                     posterior_distribution[word] = prob * (EPSILON / 2)
-
 
             # Calculate p(answer) = sum of unnormalized posterior probabilities
             p_answer = sum(posterior_distribution.values())

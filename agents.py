@@ -123,7 +123,8 @@ class LLMAgent(ta.agents.OpenRouterAgent):
     def _format_belief_state(self):
         """Format belief state for prompts. Used by Bayesian agents."""
         sorted_beliefs = sorted(self.belief_distribution.items(), key=lambda x: x[1], reverse=True)
-        return "\n".join(f"{i+1}. {word}: {prob:.3f}" for i, (word, prob) in enumerate(sorted_beliefs))
+        #return "\n".join(f"{i+1}. {word}: {prob:.3f}" for i, (word, prob) in enumerate(sorted_beliefs))
+        return "\n".join(f"{i+1}. {word}" for i, (word, _) in enumerate(sorted_beliefs))
 
     def __call__(self, game_history: list) -> str:
         """Main method called by TextArena environment"""
@@ -663,6 +664,48 @@ class BayesQMAgent(EIGQuestionMixin, LLMAgent):
     def get_base_prompt(self):
         """Use BELIEF_PROMPT to show belief state in all prompts"""
         return BELIEF_PROMPT
+
+    def move(self, history: str) -> str:
+        """Make final guess based on belief distribution"""
+        return self._move_belief()
+
+
+# === NoShow Variants: Hide beliefs from LLM prompts ===
+
+class BayesMNoShowAgent(LLMAgent):
+    """LLM questions + Belief-based moves, but beliefs NOT shown to LLM in prompts"""
+
+    def get_base_prompt(self):
+        """Use BASE_PROMPT - do NOT show belief state to LLM"""
+        return BASE_PROMPT
+
+    def move(self, history: str) -> str:
+        """Make final guess based on belief distribution"""
+        return self._move_belief()
+
+
+class BayesQNoShowAgent(EIGQuestionMixin, LLMAgent):
+    """EIG questions + LLM moves, but beliefs NOT shown to LLM in prompts"""
+
+    def __init__(self, openrouter_agent: ta.agents.OpenRouterAgent, ground_truth_theme: str, k: int = 10):
+        LLMAgent.__init__(self, openrouter_agent, ground_truth_theme)
+        self.k = k
+
+    def get_base_prompt(self):
+        """Use BASE_PROMPT - do NOT show belief state to LLM"""
+        return BASE_PROMPT
+
+
+class BayesQMNoShowAgent(EIGQuestionMixin, LLMAgent):
+    """EIG questions + Belief-based moves, but beliefs NOT shown to LLM in prompts"""
+
+    def __init__(self, openrouter_agent: ta.agents.OpenRouterAgent, ground_truth_theme: str, k: int = 10):
+        LLMAgent.__init__(self, openrouter_agent, ground_truth_theme)
+        self.k = k
+
+    def get_base_prompt(self):
+        """Use BASE_PROMPT - do NOT show belief state to LLM"""
+        return BASE_PROMPT
 
     def move(self, history: str) -> str:
         """Make final guess based on belief distribution"""

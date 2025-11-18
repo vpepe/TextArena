@@ -1,7 +1,7 @@
 import textarena as ta
 from dotenv import load_dotenv
 import os
-from agents import LLMAgent, BayesMAgent, BayesQAgent, BayesQMAgent
+from agents import LLMAgent, BayesMAgent, BayesQAgent, BayesQMAgent, BayesMNoShowAgent, BayesQNoShowAgent, BayesQMNoShowAgent
 import json
 import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -96,6 +96,12 @@ def run_single_game(model_name, gamemaster_model, agent_type, game_id, run_id, e
             agent = BayesQAgent(base_agent, ground_truth_theme, k=10)
         elif agent_type == "Bayes-QM":
             agent = BayesQMAgent(base_agent, ground_truth_theme, k=10)
+        elif agent_type == "Bayes-M-NoShow":
+            agent = BayesMNoShowAgent(base_agent, ground_truth_theme)
+        elif agent_type == "Bayes-Q-NoShow":
+            agent = BayesQNoShowAgent(base_agent, ground_truth_theme, k=10)
+        elif agent_type == "Bayes-QM-NoShow":
+            agent = BayesQMNoShowAgent(base_agent, ground_truth_theme, k=10)
         else:
             raise ValueError(f"Unknown agent type: {agent_type}")
 
@@ -353,9 +359,9 @@ if __name__ == "__main__":
     parser.add_argument(
         '--agent-types',
         nargs='+',
-        choices=['LLM', 'Bayes-M', 'Bayes-Q', 'Bayes-QM'],
+        choices=['LLM', 'Bayes-M', 'Bayes-Q', 'Bayes-QM', 'Bayes-M-NoShow', 'Bayes-Q-NoShow', 'Bayes-QM-NoShow'],
         default=['LLM', 'Bayes-QM'],
-        help='Agent types to test (default: LLM Bayes-QM)'
+        help='Agent types to test (default: LLM Bayes-QM). NoShow variants hide beliefs from LLM prompts.'
     )
 
     parser.add_argument(

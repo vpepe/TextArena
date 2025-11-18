@@ -61,12 +61,13 @@ def generate_word_assignments(games_per_model, seed, theme="iclr"):
 
     return word_assignments
 
-def run_single_game(model_name, gamemaster_model, agent_type, game_id, run_id, experiment_dir, target_word=None):
+def run_single_game(model_name, gamemaster_model, agent_type, game_id, run_id, experiment_dir, target_word=None, theme="iclr"):
     """
     Run a single game with specified models and agent type
 
     Args:
         target_word: If provided, use this specific word instead of random selection
+        theme: Word theme to use for the game
     """
     try:
         # Initialize base agent for 20 Questions
@@ -78,7 +79,7 @@ def run_single_game(model_name, gamemaster_model, agent_type, game_id, run_id, e
         env.gamemaster = ta.agents.OpenRouterAgent(model_name=gamemaster_model)
 
         # Reset the environment for single player, optionally with assigned word
-        env.reset(num_players=1, game_theme="iclr", target_word=target_word)
+        env.reset(num_players=1, game_theme=theme, target_word=target_word)
 
         # Extract ground truth after reset
         ground_truth_word = env.game_word
@@ -173,7 +174,7 @@ def run_single_game(model_name, gamemaster_model, agent_type, game_id, run_id, e
         }
 
 def run_parallel_experiments(models, gamemaster_model="openai/gpt-4o", agent_types=["LLM", "Bayes-M", "Bayes-Q", "Bayes-QM"],
-                           games_per_model=5, max_workers=10, cli_command=None, seed=42):
+                           games_per_model=5, max_workers=10, cli_command=None, seed=42, theme="iclr"):
     """
     Run multiple games in parallel across different models and agent types
 
@@ -185,6 +186,7 @@ def run_parallel_experiments(models, gamemaster_model="openai/gpt-4o", agent_typ
         max_workers: Maximum number of concurrent threads
         cli_command: The original CLI command string for reproducibility
         seed: Random seed for deterministic word selection
+        theme: Word theme to use for the game
     """
     # Create experiment directory with timestamp
     timestamp = datetime.datetime.now().strftime('%Y_%m_%d_%H%M%S')
@@ -192,7 +194,7 @@ def run_parallel_experiments(models, gamemaster_model="openai/gpt-4o", agent_typ
     os.makedirs(experiment_dir, exist_ok=True)
 
     # Generate deterministic word assignments
-    word_assignments = generate_word_assignments(games_per_model, seed=seed, theme="iclr")
+    word_assignments = generate_word_assignments(games_per_model, seed=seed, theme=theme)
 
     # Save CLI command to args.txt
     args_file = os.path.join(experiment_dir, 'args.txt')
@@ -233,7 +235,8 @@ def run_parallel_experiments(models, gamemaster_model="openai/gpt-4o", agent_typ
                     'agent_type': agent_type,
                     'game_id': game_id,
                     'run_id': run,
-                    'target_word': word_assignments[run]  # Assign word based on run_id
+                    'target_word': word_assignments[run],  # Assign word based on run_id
+                    'theme': theme
                 })
                 game_id += 1
 
@@ -273,7 +276,8 @@ def run_parallel_experiments(models, gamemaster_model="openai/gpt-4o", agent_typ
                     config['game_id'],
                     config['run_id'],
                     experiment_dir,
-                    config['target_word']
+                    config['target_word'],
+                    config['theme']
                 ): config for config in game_configs
             }
 
@@ -377,6 +381,13 @@ if __name__ == "__main__":
         help='Random seed for deterministic word selection (default: 42)'
     )
 
+    parser.add_argument(
+        '--theme',
+        type=str,
+        default='iclr',
+        help='Word theme to use (default: iclr). See twenty_questions_words.json for available themes.'
+    )
+
     args = parser.parse_args()
 
     # Configure logging with Rich
@@ -406,7 +417,8 @@ if __name__ == "__main__":
         games_per_model=args.games_per_model,
         max_workers=args.max_workers,
         cli_command=cli_command,
-        seed=args.seed
+        seed=args.seed,
+        theme=args.theme
     )
 
     # Print some summary statistics

@@ -14,7 +14,33 @@ logger = logging.getLogger(__name__)
 # Configuration flags
 ENABLED_PROMPT_TYPES = set()  # Set of prompt types to show (e.g., {'DECISION', 'QUESTION'})
 
-EPSILON = 0.1  # Noise parameter for answers
+# Asymmetric noise matrix for answer observations
+# NOISE_MATRIX[observed_answer][true_answer] = p(observe | true)
+# Rows (observations) must sum to 1.0 for each column (true answer)
+NOISE_MATRIX = {
+    "yes": {
+        "yes": 0.90,
+        "no": 0.01,
+        "i don't know": 0.25,
+    },
+    "no": {
+        "yes": 0.01,
+        "no": 0.90,
+        "i don't know": 0.25,
+    },
+    "i don't know": {
+        "yes": 0.09,
+        "no": 0.09,
+        "i don't know": 0.50,
+    }
+}
+
+# Validate noise matrix: each column should sum to 1.0
+for true_answer in ["yes", "no", "i don't know"]:
+    column_sum = sum(NOISE_MATRIX[obs][true_answer] for obs in ["yes", "no", "i don't know"])
+    if not np.isclose(column_sum, 1.0, atol=1e-6):
+        raise ValueError(f"Noise matrix column '{true_answer}' sums to {column_sum}, expected 1.0")
+
 TOP_N_BELIEFS = 10  # Number of top beliefs to show in prompts
 BLANK_HISTORY_PLACEHOLDER = "(no history yet)"
 ANSWER_REGEX = re.compile(r'<answer>(.*?)</answer>', re.IGNORECASE | re.DOTALL)
@@ -42,6 +68,30 @@ def log_prompt(label: str, prompt):
         prompt_text = str(prompt)
 
     logger.info(f"{'=' * 60}\n{label} PROMPT\n{'=' * 60}\n{prompt_text}\n{'=' * 60}")
+
+def get_likelihood(observed_answer: str, true_answer: str) -> float:
+    """
+    Get the likelihood p(observed_answer | true_answer) from the noise matrix.
+
+    Args:
+        observed_answer: The answer that was actually observed
+        true_answer: The true/simulated answer for a specific word
+
+    Returns:
+        Probability of observing the observed_answer given the true_answer
+    """
+    # Normalize answers to lowercase and strip whitespace
+    observed_answer = observed_answer.lower().strip()
+    true_answer = true_answer.lower().strip()
+
+    # Validate answers
+    valid_answers = ["yes", "no", "i don't know"]
+    if observed_answer not in valid_answers:
+        raise ValueError(f"Invalid observed answer: '{observed_answer}'. Must be one of {valid_answers}")
+    if true_answer not in valid_answers:
+        raise ValueError(f"Invalid true answer: '{true_answer}'. Must be one of {valid_answers}")
+
+    return NOISE_MATRIX[observed_answer][true_answer]
 
 class DecisionType:
     QUESTION = "question"
@@ -343,9 +393,9 @@ class LLMAgent(ta.agents.OpenRouterAgent):
         """
         Update belief distribution based on question and actual answer received.
         Uses Bayesian update: p(word|answer) ∝ p(word) * p(answer|word)
-        where p(answer|word) accounts for noise (EPSILON):
-        - If simulated_answer == actual_answer: p(answer|word) = (1 - EPSILON)
-        - If simulated_answer != actual_answer: p(answer|word) = EPSILON / 2
+        where p(answer|word) is determined by the NOISE_MATRIX:
+        - p(answer|word) = NOISE_MATRIX[actual_answer][simulated_answer]
+        This accounts for asymmetric noise in the gamemaster's responses.
         """
         logger.info(f"BELIEF UPDATE | Q: '{question}' → A: '{actual_answer}'")
 
@@ -375,14 +425,9 @@ class LLMAgent(ta.agents.OpenRouterAgent):
             if word in simulated_answers:
                 simulated_answer = simulated_answers[word]
 
-                # Update probability with noise model
-                # p(answer|word) = (1-EPSILON) if match, EPSILON/2 if no match
-                if simulated_answer == actual_answer:
-                    # Simulated answer matches actual answer
-                    likelihood = 1.0 - EPSILON
-                else:
-                    # Simulated answer doesn't match (noise case)
-                    likelihood = EPSILON / 2
+                # Update probability with asymmetric noise model
+                # p(answer|word) = NOISE_MATRIX[actual_answer][simulated_answer]
+                likelihood = get_likelihood(actual_answer, simulated_answer)
 
                 new_beliefs[word] = prob * likelihood
             else:
@@ -513,11 +558,9 @@ class LLMAgent(ta.agents.OpenRouterAgent):
             for word, prob in self.belief_distribution.items():
                 simulated_answer = simulated_answers[word]
                 # p(word | answer) ∝ p(word) × p(answer | word)
-                # where p(answer | word) = 1 if simulated_answer == answer, else 0
-                if simulated_answer == answer:
-                    posterior_distribution[word] = prob * (1.0 - EPSILON)
-                else:
-                    posterior_distribution[word] = prob * (EPSILON / 2)
+                # where p(answer | word) = NOISE_MATRIX[answer][simulated_answer]
+                likelihood = get_likelihood(answer, simulated_answer)
+                posterior_distribution[word] = prob * likelihood
 
             # Calculate p(answer) = sum of unnormalized posterior probabilities
             p_answer = sum(posterior_distribution.values())

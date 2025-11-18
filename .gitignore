@@ -178,5 +178,6 @@ static_temp
 *.mp4
 
 *.env
+uv.lock
 
 experiments/

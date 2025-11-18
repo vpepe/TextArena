@@ -135,9 +135,6 @@ class LLMAgent(ta.agents.OpenRouterAgent):
             'turn_number': self.diagnostics['current_turn']
         }
 
-        # Record belief state before processing new answers (after previous question)
-        turn_data['belief_state_after_previous_question'] = dict(self.belief_distribution)
-
         # Add turn data early so question() method can access and modify it
         self.diagnostics['turns'].append(turn_data)
 
@@ -300,6 +297,13 @@ class LLMAgent(ta.agents.OpenRouterAgent):
         - If simulated_answer != actual_answer: p(answer|word) = EPSILON / 2
         """
         logger.info(f"BELIEF UPDATE | Q: '{question}' → A: '{actual_answer}'")
+
+        # Record the answer in the diagnostics of the turn where the question was asked
+        # Current turn is T, question was asked in turn T-1, so index is current_turn - 2
+        if self.diagnostics['current_turn'] >= 2:
+            question_turn_idx = self.diagnostics['current_turn'] - 2
+            if question_turn_idx >= 0 and question_turn_idx < len(self.diagnostics['turns']):
+                self.diagnostics['turns'][question_turn_idx]['answer_received'] = actual_answer
 
         # Normalize actual answer
         actual_answer = actual_answer.lower().strip()

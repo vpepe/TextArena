@@ -108,13 +108,14 @@ def generate_word_assignments(games_per_model, seed, theme_specs=None, category=
 
     return word_assignments
 
-def run_single_game(model_name, gamemaster_model, agent_type, game_id, run_id, experiment_dir, target_word=None, theme_label=None):
+def run_single_game(model_name, gamemaster_model, agent_type, game_id, run_id, experiment_dir, target_word=None, theme_label=None, word_list=None):
     """
     Run a single game with specified models and agent type
 
     Args:
         target_word: If provided, use this specific word instead of random selection
         theme_label: Label describing the theme(s) for the agent's knowledge
+        word_list: List of words to use for agent belief tracking (required when using combined themes)
     """
     try:
         # Initialize base agent for 20 Questions
@@ -137,13 +138,13 @@ def run_single_game(model_name, gamemaster_model, agent_type, game_id, run_id, e
 
         # Initialize agent based on type
         if agent_type == "LLM":
-            agent = LLMAgent(base_agent, ground_truth_theme)
+            agent = LLMAgent(base_agent, ground_truth_theme, word_list=word_list)
         elif agent_type == "Bayes-M":
-            agent = BayesMAgent(base_agent, ground_truth_theme)
+            agent = BayesMAgent(base_agent, ground_truth_theme, word_list=word_list)
         elif agent_type == "Bayes-Q":
-            agent = BayesQAgent(base_agent, ground_truth_theme, k=10)
+            agent = BayesQAgent(base_agent, ground_truth_theme, k=10, word_list=word_list)
         elif agent_type == "Bayes-QM":
-            agent = BayesQMAgent(base_agent, ground_truth_theme, k=10)
+            agent = BayesQMAgent(base_agent, ground_truth_theme, k=10, word_list=word_list)
         else:
             raise ValueError(f"Unknown agent type: {agent_type}")
 
@@ -251,6 +252,11 @@ def run_parallel_experiments(models, gamemaster_model="openai/gpt-4o", agent_typ
     # Generate deterministic word assignments
     word_assignments = generate_word_assignments(games_per_model, seed=seed, theme_specs=theme_specs, category=category)
 
+    # Load the complete word list for agent belief tracking and shuffle it deterministically
+    word_list = load_word_list(theme_specs=theme_specs, category=category)
+    random.seed(seed)
+    random.shuffle(word_list)
+
     # Create theme label for display
     if category:
         theme_label = f"category:{category}"
@@ -299,7 +305,8 @@ def run_parallel_experiments(models, gamemaster_model="openai/gpt-4o", agent_typ
                     'game_id': game_id,
                     'run_id': run,
                     'target_word': word_assignments[run],  # Assign word based on run_id
-                    'theme_label': theme_label
+                    'theme_label': theme_label,
+                    'word_list': word_list
                 })
                 game_id += 1
 
@@ -340,7 +347,8 @@ def run_parallel_experiments(models, gamemaster_model="openai/gpt-4o", agent_typ
                     config['run_id'],
                     experiment_dir,
                     config['target_word'],
-                    config['theme_label']
+                    config['theme_label'],
+                    config['word_list']
                 ): config for config in game_configs
             }
 

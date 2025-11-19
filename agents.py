@@ -121,16 +121,20 @@ def shannon_entropy(probabilities: list) -> float:
     return entropy
 
 class LLMAgent(ta.agents.OpenRouterAgent):
-    def __init__(self, openrouter_agent: ta.agents.OpenRouterAgent, ground_truth_theme: str):
+    def __init__(self, openrouter_agent: ta.agents.OpenRouterAgent, ground_truth_theme: str, word_list: list = None):
         super().__init__(model_name=openrouter_agent.model_name)
         self.openrouter_agent = openrouter_agent
         self.ground_truth_theme = ground_truth_theme
 
-        # Load words using importlib.resources for consistency with env.py
-        with importlib.resources.files('textarena.envs.TwentyQuestions').joinpath('twenty_questions_words.json').open('r') as f:
-            word_data = json.load(f)
+        # Use provided word_list if available, otherwise load from JSON
+        if word_list is not None:
+            self.word_data = word_list
+        else:
+            # Load words using importlib.resources for consistency with env.py
+            with importlib.resources.files('textarena.envs.TwentyQuestions').joinpath('twenty_questions_words.json').open('r') as f:
+                word_data = json.load(f)
 
-        self.word_data = word_data["basic"][self.ground_truth_theme]
+            self.word_data = word_data["basic"][self.ground_truth_theme]
 
         # Initialize belief tracking (passive for all agents)
         self.sampling_agent = ta.agents.OpenRouterAgent(model_name=self.openrouter_agent.model_name)
@@ -764,8 +768,8 @@ class BayesMAgent(LLMAgent):
 class BayesQAgent(EIGQuestionMixin, LLMAgent):
     """EIG questions + LLM moves"""
 
-    def __init__(self, openrouter_agent: ta.agents.OpenRouterAgent, ground_truth_theme: str, k: int = 10):
-        LLMAgent.__init__(self, openrouter_agent, ground_truth_theme)
+    def __init__(self, openrouter_agent: ta.agents.OpenRouterAgent, ground_truth_theme: str, k: int = 10, word_list: list = None):
+        LLMAgent.__init__(self, openrouter_agent, ground_truth_theme, word_list=word_list)
         self.k = k
 
     def get_base_prompt(self):
@@ -776,8 +780,8 @@ class BayesQAgent(EIGQuestionMixin, LLMAgent):
 class BayesQMAgent(EIGQuestionMixin, LLMAgent):
     """EIG questions + Belief-based moves"""
 
-    def __init__(self, openrouter_agent: ta.agents.OpenRouterAgent, ground_truth_theme: str, k: int = 10):
-        LLMAgent.__init__(self, openrouter_agent, ground_truth_theme)
+    def __init__(self, openrouter_agent: ta.agents.OpenRouterAgent, ground_truth_theme: str, k: int = 10, word_list: list = None):
+        LLMAgent.__init__(self, openrouter_agent, ground_truth_theme, word_list=word_list)
         self.k = k
 
     def get_base_prompt(self):

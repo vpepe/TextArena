@@ -41,7 +41,7 @@ for true_answer in ["yes", "no", "i don't know"]:
     if not np.isclose(column_sum, 1.0, atol=1e-6):
         raise ValueError(f"Noise matrix column '{true_answer}' sums to {column_sum}, expected 1.0")
 
-TOP_N_BELIEFS = 10  # Number of top beliefs to show in prompts
+TOP_N_BELIEFS = None  # Number of top beliefs to show in prompts (None shows all)
 BLANK_HISTORY_PLACEHOLDER = "(no history yet)"
 ANSWER_REGEX = re.compile(r'<answer>(.*?)</answer>', re.IGNORECASE | re.DOTALL)
 
@@ -195,16 +195,16 @@ class LLMAgent(ta.agents.OpenRouterAgent):
         # Sort with deterministic random tiebreaking
         return sorted(self.belief_distribution.items(), key=lambda x: (-x[1], local_random.random()))
 
-    def _format_belief_state(self, top_n: int = None):
+    def _format_belief_state(self, top_n: int = TOP_N_BELIEFS):
         """
         Format belief state for prompts. Used by Bayesian agents.
         Args:
             top_n: Number of top beliefs to show (defaults to TOP_N_BELIEFS)
         """
-        if top_n is None:
-            top_n = TOP_N_BELIEFS
+        sorted_beliefs = self._get_sorted_beliefs()
 
-        sorted_beliefs = self._get_sorted_beliefs()[:top_n]
+        if top_n is not None:
+            sorted_beliefs = sorted_beliefs[:top_n]
         return "\n".join(f"{i+1}. {word}: {prob:.3f}" for i, (word, prob) in enumerate(sorted_beliefs))
 
     def __call__(self, game_history: list) -> str:

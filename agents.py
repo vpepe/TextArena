@@ -121,10 +121,11 @@ def shannon_entropy(probabilities: list) -> float:
     return entropy
 
 class LLMAgent(ta.agents.OpenRouterAgent):
-    def __init__(self, openrouter_agent: ta.agents.OpenRouterAgent, ground_truth_theme: str):
+    def __init__(self, openrouter_agent: ta.agents.OpenRouterAgent, ground_truth_theme: str, max_questions: int = 20):
         super().__init__(model_name=openrouter_agent.model_name)
         self.openrouter_agent = openrouter_agent
         self.ground_truth_theme = ground_truth_theme
+        self.max_questions = max_questions
 
         # Load words using importlib.resources for consistency with env.py
         with importlib.resources.files('textarena.envs.TwentyQuestions').joinpath('twenty_questions_words.json').open('r') as f:
@@ -226,9 +227,9 @@ class LLMAgent(ta.agents.OpenRouterAgent):
         # Update game history
         formatted_history = self.format_history(game_history)
 
-        # Calculate remaining questions (count player questions, max 20)
+        # Calculate remaining questions (count player questions, max self.max_questions)
         player_questions = len([entry for entry in game_history if entry["player"] == 0])
-        remaining_questions = max(0, 20 - player_questions)
+        remaining_questions = max(0, self.max_questions - player_questions)
 
         decision = self.decision(formatted_history, remaining_questions)
         turn_data['decision'] = decision
@@ -251,6 +252,7 @@ class LLMAgent(ta.agents.OpenRouterAgent):
             history=history,
             remaining_questions=remaining_questions,
             belief_state=self._format_belief_state(),
+            max_questions=self.max_questions,
         )
         prompt = DECISION_PROMPT.format(context=context)
 
@@ -293,6 +295,7 @@ class LLMAgent(ta.agents.OpenRouterAgent):
             history=history,
             remaining_questions=remaining_questions,
             belief_state=self._format_belief_state(),
+            max_questions=self.max_questions,
         )
         prompt = QUESTION_PROMPT.format(context=context)
         log_prompt("QUESTION", prompt)
@@ -324,6 +327,7 @@ class LLMAgent(ta.agents.OpenRouterAgent):
             history=history,
             remaining_questions=remaining_questions,
             belief_state=self._format_belief_state(),
+            max_questions=self.max_questions,
         )
 
         prompt = MOVE_PROMPT.format(context=context, word_list=self.word_data)
@@ -463,7 +467,7 @@ class LLMAgent(ta.agents.OpenRouterAgent):
 
         formatted_history = history
         # Use BASE_PROMPT directly for consistency checks (not belief-aware)
-        context = BASE_PROMPT.format(word_list=self.word_data, history=formatted_history, remaining_questions=remaining_questions)
+        context = BASE_PROMPT.format(word_list=self.word_data, history=formatted_history, remaining_questions=remaining_questions, max_questions=self.max_questions)
         prompt = CONSISTENCY_PROMPT.format(context=context, question=question)
 
         log_prompt("CONSISTENCY", prompt)
@@ -669,6 +673,7 @@ class EIGQuestionMixin:
                 history=formatted_history,
                 remaining_questions=remaining_questions,
                 belief_state=self._format_belief_state(),
+                max_questions=self.max_questions,
             )
 
             questions = self._generate_batch_questions(context, remaining_questions, self.k, max_retries)
@@ -764,8 +769,8 @@ class BayesMAgent(LLMAgent):
 class BayesQAgent(EIGQuestionMixin, LLMAgent):
     """EIG questions + LLM moves"""
 
-    def __init__(self, openrouter_agent: ta.agents.OpenRouterAgent, ground_truth_theme: str, k: int = 10):
-        LLMAgent.__init__(self, openrouter_agent, ground_truth_theme)
+    def __init__(self, openrouter_agent: ta.agents.OpenRouterAgent, ground_truth_theme: str, k: int = 10, max_questions: int = 20):
+        LLMAgent.__init__(self, openrouter_agent, ground_truth_theme, max_questions=max_questions)
         self.k = k
 
     def get_base_prompt(self):
@@ -776,8 +781,8 @@ class BayesQAgent(EIGQuestionMixin, LLMAgent):
 class BayesQMAgent(EIGQuestionMixin, LLMAgent):
     """EIG questions + Belief-based moves"""
 
-    def __init__(self, openrouter_agent: ta.agents.OpenRouterAgent, ground_truth_theme: str, k: int = 10):
-        LLMAgent.__init__(self, openrouter_agent, ground_truth_theme)
+    def __init__(self, openrouter_agent: ta.agents.OpenRouterAgent, ground_truth_theme: str, k: int = 10, max_questions: int = 20):
+        LLMAgent.__init__(self, openrouter_agent, ground_truth_theme, max_questions=max_questions)
         self.k = k
 
     def get_base_prompt(self):

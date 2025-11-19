@@ -1,12 +1,12 @@
 # Define ground_truth_theme here for this cell to work independently
 
 GAME_PROMPT = """
-You are playing 20 Questions. Your goal is to gather enough information to be able to guess a secret word by asking at most 20 questions.
+You are playing 20 Questions. Your goal is to gather enough information to be able to guess a secret word by asking at most {max_questions} questions.
 
 RULES:
 - You can ask any question, but the Gamemaster can only answer "Yes," "No," or "I don't know."
 - You can guess at any time, but if you guess wrong, you lose the game.
-- After 20 questions, you will be forced to make a final guess.
+- After {max_questions} questions, you will be forced to make a final guess.
 """
 
 BASE_PROMPT = GAME_PROMPT + """

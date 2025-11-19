@@ -61,20 +61,21 @@ def generate_word_assignments(games_per_model, seed, theme="iclr"):
 
     return word_assignments
 
-def run_single_game(model_name, gamemaster_model, agent_type, game_id, run_id, experiment_dir, target_word=None, theme="iclr"):
+def run_single_game(model_name, gamemaster_model, agent_type, game_id, run_id, experiment_dir, target_word=None, theme="iclr", max_questions=20):
     """
     Run a single game with specified models and agent type
 
     Args:
         target_word: If provided, use this specific word instead of random selection
         theme: Word theme to use for the game
+        max_questions: Maximum number of questions allowed in the game
     """
     try:
         # Initialize base agent for 20 Questions
         base_agent = ta.agents.OpenRouterAgent(model_name=model_name)
 
-        # Initialize the 20 Questions environment
-        env = ta.make(env_id="TwentyQuestions-v0-raw")
+        # Initialize the 20 Questions environment with dynamic max_turns
+        env = ta.make(env_id="TwentyQuestions-v0-raw", max_turns=max_questions + 1)
         # Change the gamemaster model (before reset)
         env.gamemaster = ta.agents.OpenRouterAgent(model_name=gamemaster_model)
 
@@ -89,13 +90,13 @@ def run_single_game(model_name, gamemaster_model, agent_type, game_id, run_id, e
 
         # Initialize agent based on type
         if agent_type == "LLM":
-            agent = LLMAgent(base_agent, ground_truth_theme)
+            agent = LLMAgent(base_agent, ground_truth_theme, max_questions=max_questions)
         elif agent_type == "Bayes-M":
-            agent = BayesMAgent(base_agent, ground_truth_theme)
+            agent = BayesMAgent(base_agent, ground_truth_theme, max_questions=max_questions)
         elif agent_type == "Bayes-Q":
-            agent = BayesQAgent(base_agent, ground_truth_theme, k=10)
+            agent = BayesQAgent(base_agent, ground_truth_theme, k=10, max_questions=max_questions)
         elif agent_type == "Bayes-QM":
-            agent = BayesQMAgent(base_agent, ground_truth_theme, k=10)
+            agent = BayesQMAgent(base_agent, ground_truth_theme, k=10, max_questions=max_questions)
         else:
             raise ValueError(f"Unknown agent type: {agent_type}")
 
@@ -180,7 +181,7 @@ def run_single_game(model_name, gamemaster_model, agent_type, game_id, run_id, e
         }
 
 def run_parallel_experiments(models, gamemaster_model="openai/gpt-4o", agent_types=["LLM", "Bayes-M", "Bayes-Q", "Bayes-QM"],
-                           games_per_model=5, max_workers=10, cli_command=None, seed=42, theme="iclr"):
+                           games_per_model=5, max_workers=10, cli_command=None, seed=42, theme="iclr", max_questions=20):
     """
     Run multiple games in parallel across different models and agent types
 
@@ -193,6 +194,7 @@ def run_parallel_experiments(models, gamemaster_model="openai/gpt-4o", agent_typ
         cli_command: The original CLI command string for reproducibility
         seed: Random seed for deterministic word selection
         theme: Word theme to use for the game
+        max_questions: Maximum number of questions allowed in the game
     """
     # Create experiment directory with timestamp
     timestamp = datetime.datetime.now().strftime('%Y_%m_%d_%H%M%S')
@@ -242,7 +244,8 @@ def run_parallel_experiments(models, gamemaster_model="openai/gpt-4o", agent_typ
                     'game_id': game_id,
                     'run_id': run,
                     'target_word': word_assignments[run],  # Assign word based on run_id
-                    'theme': theme
+                    'theme': theme,
+                    'max_questions': max_questions
                 })
                 game_id += 1
 
@@ -283,7 +286,8 @@ def run_parallel_experiments(models, gamemaster_model="openai/gpt-4o", agent_typ
                     config['run_id'],
                     experiment_dir,
                     config['target_word'],
-                    config['theme']
+                    config['theme'],
+                    config['max_questions']
                 ): config for config in game_configs
             }
 
@@ -401,6 +405,13 @@ if __name__ == "__main__":
         help='Word theme to use (default: iclr). See twenty_questions_words.json for available themes.'
     )
 
+    parser.add_argument(
+        '--max-questions',
+        type=int,
+        default=20,
+        help='Maximum number of questions allowed in the game (default: 20)'
+    )
+
     args = parser.parse_args()
 
     # Configure logging with Rich
@@ -443,7 +454,8 @@ if __name__ == "__main__":
         max_workers=args.max_workers,
         cli_command=cli_command,
         seed=args.seed,
-        theme=args.theme
+        theme=args.theme,
+        max_questions=args.max_questions
     )
 
     # Print some summary statistics

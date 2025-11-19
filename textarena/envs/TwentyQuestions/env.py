@@ -32,11 +32,20 @@ class TwentyQuestionsEnv(ta.Env):
                 # Use package resource
                 with importlib.resources.files('textarena.envs.TwentyQuestions').joinpath('twenty_questions_words.json').open('r') as file:
                     word_data = json.load(file)
+
+            # New structure: category -> theme -> [words]
+            # For backward compatibility, flatten into theme -> [words] dict
             category = "hardcore" if self.hardcore else "basic"
-            words = word_data.get(category, [])
-            if not words: raise ValueError(f"No words found for difficulty level '{category}'.")
+            if category not in word_data:
+                raise ValueError(f"Category '{category}' not found. Available categories: {list(word_data.keys())}")
+
+            # Return the theme dictionary for the selected category
+            words = word_data.get(category, {})
+            if not words:
+                raise ValueError(f"No words found for category '{category}'.")
             return words
-        except Exception as e: raise FileNotFoundError(f"Failed to load words data: {str(e)}")
+        except Exception as e:
+            raise FileNotFoundError(f"Failed to load words data: {str(e)}")
 
     def get_board_str(self): return create_board_str(game_state=self.state.game_state)
     def get_gamemaster_response(self, action: str) -> str:

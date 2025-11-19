@@ -28,26 +28,73 @@ def thread_safe_log(level, message):
     with log_lock:
         logger.log(level, message)
 
-def load_word_list(theme="iclr", hardcore=False):
-    """Load word list from the TwentyQuestions words file"""
+def load_word_list(theme_specs=None, category=None):
+    """
+    Load word list from the TwentyQuestions words file
+
+    Args:
+        theme_specs: List of category/theme pairs (e.g., ["basic/places", "hardcore/people"])
+        category: Load all themes from this category (e.g., "basic")
+
+    Returns:
+        List of words combined from all specified themes
+    """
     import importlib.resources
     with importlib.resources.files('textarena.envs.TwentyQuestions').joinpath('twenty_questions_words.json').open('r') as f:
         word_data = json.load(f)
-    category = "hardcore" if hardcore else "basic"
-    words = word_data.get(category, {}).get(theme, [])
-    if not words:
-        raise ValueError(f"No words found for theme '{theme}' in category '{category}'")
-    return words
 
-def generate_word_assignments(games_per_model, seed, theme="iclr"):
+    words = []
+
+    # If category is specified, load all themes from that category
+    if category:
+        if category not in word_data:
+            raise ValueError(f"Category '{category}' not found. Available categories: {list(word_data.keys())}")
+        for theme_words in word_data[category].values():
+            words.extend(theme_words)
+
+    # If theme_specs is specified, load specific category/theme pairs
+    if theme_specs:
+        for spec in theme_specs:
+            if '/' not in spec:
+                raise ValueError(f"Theme spec '{spec}' must be in format 'category/theme'")
+            cat, theme = spec.split('/', 1)
+            if cat not in word_data:
+                raise ValueError(f"Category '{cat}' not found in theme spec '{spec}'")
+            if theme not in word_data[cat]:
+                raise ValueError(f"Theme '{theme}' not found in category '{cat}'. Available themes: {list(word_data[cat].keys())}")
+            words.extend(word_data[cat][theme])
+
+    # Default to test/misc if nothing specified
+    if not words:
+        words = word_data.get("test", {}).get("misc", [])
+        if not words:
+            raise ValueError("No words found and default 'test/misc' is not available")
+
+    # Remove duplicates while preserving order
+    seen = set()
+    unique_words = []
+    for word in words:
+        if word not in seen:
+            seen.add(word)
+            unique_words.append(word)
+
+    return unique_words
+
+def generate_word_assignments(games_per_model, seed, theme_specs=None, category=None):
     """
     Generate deterministic word assignments ensuring same run_id gets same word
     across all agent types and models.
 
+    Args:
+        games_per_model: Number of games per model
+        seed: Random seed for deterministic shuffling
+        theme_specs: List of category/theme pairs (e.g., ["basic/places", "hardcore/people"])
+        category: Load all themes from this category (e.g., "basic")
+
     Returns: dict mapping run_id -> word
     """
     random.seed(seed)
-    words = load_word_list(theme=theme)
+    words = load_word_list(theme_specs=theme_specs, category=category)
 
     # Shuffle words for variety, but deterministically based on seed
     shuffled_words = words.copy()
@@ -61,13 +108,13 @@ def generate_word_assignments(games_per_model, seed, theme="iclr"):
 
     return word_assignments
 
-def run_single_game(model_name, gamemaster_model, agent_type, game_id, run_id, experiment_dir, target_word=None, theme="iclr"):
+def run_single_game(model_name, gamemaster_model, agent_type, game_id, run_id, experiment_dir, target_word=None, theme_label=None):
     """
     Run a single game with specified models and agent type
 
     Args:
         target_word: If provided, use this specific word instead of random selection
-        theme: Word theme to use for the game
+        theme_label: Label describing the theme(s) for the agent's knowledge
     """
     try:
         # Initialize base agent for 20 Questions
@@ -78,12 +125,13 @@ def run_single_game(model_name, gamemaster_model, agent_type, game_id, run_id, e
         # Change the gamemaster model (before reset)
         env.gamemaster = ta.agents.OpenRouterAgent(model_name=gamemaster_model)
 
-        # Reset the environment for single player, optionally with assigned word
-        env.reset(num_players=1, game_theme=theme, target_word=target_word)
+        # Reset the environment for single player with assigned word
+        # Don't pass game_theme since we're using a specific target_word
+        env.reset(num_players=1, target_word=target_word)
 
         # Extract ground truth after reset
         ground_truth_word = env.game_word
-        ground_truth_theme = env.game_theme
+        ground_truth_theme = theme_label if theme_label else "unknown"
 
         thread_safe_log(logging.DEBUG, f"🎯 Game {game_id} (Run {run_id}) - Target: '{ground_truth_word}' (theme: {ground_truth_theme})")
 
@@ -180,7 +228,7 @@ def run_single_game(model_name, gamemaster_model, agent_type, game_id, run_id, e
         }
 
 def run_parallel_experiments(models, gamemaster_model="openai/gpt-4o", agent_types=["LLM", "Bayes-M", "Bayes-Q", "Bayes-QM"],
-                           games_per_model=5, max_workers=10, cli_command=None, seed=42, theme="iclr"):
+                           games_per_model=5, max_workers=10, cli_command=None, seed=42, theme_specs=None, category=None):
     """
     Run multiple games in parallel across different models and agent types
 
@@ -192,7 +240,8 @@ def run_parallel_experiments(models, gamemaster_model="openai/gpt-4o", agent_typ
         max_workers: Maximum number of concurrent threads
         cli_command: The original CLI command string for reproducibility
         seed: Random seed for deterministic word selection
-        theme: Word theme to use for the game
+        theme_specs: List of category/theme pairs (e.g., ["basic/places", "hardcore/people"])
+        category: Load all themes from this category (e.g., "basic")
     """
     # Create experiment directory with timestamp
     timestamp = datetime.datetime.now().strftime('%Y_%m_%d_%H%M%S')
@@ -200,7 +249,15 @@ def run_parallel_experiments(models, gamemaster_model="openai/gpt-4o", agent_typ
     os.makedirs(experiment_dir, exist_ok=True)
 
     # Generate deterministic word assignments
-    word_assignments = generate_word_assignments(games_per_model, seed=seed, theme=theme)
+    word_assignments = generate_word_assignments(games_per_model, seed=seed, theme_specs=theme_specs, category=category)
+
+    # Create theme label for display
+    if category:
+        theme_label = f"category:{category}"
+    elif theme_specs:
+        theme_label = "+".join(theme_specs)
+    else:
+        theme_label = "test/misc"
 
     # Save CLI command to args.txt
     args_file = os.path.join(experiment_dir, 'args.txt')
@@ -242,7 +299,7 @@ def run_parallel_experiments(models, gamemaster_model="openai/gpt-4o", agent_typ
                     'game_id': game_id,
                     'run_id': run,
                     'target_word': word_assignments[run],  # Assign word based on run_id
-                    'theme': theme
+                    'theme_label': theme_label
                 })
                 game_id += 1
 
@@ -283,7 +340,7 @@ def run_parallel_experiments(models, gamemaster_model="openai/gpt-4o", agent_typ
                     config['run_id'],
                     experiment_dir,
                     config['target_word'],
-                    config['theme']
+                    config['theme_label']
                 ): config for config in game_configs
             }
 
@@ -395,10 +452,17 @@ if __name__ == "__main__":
     )
 
     parser.add_argument(
-        '--theme',
+        '--themes',
+        nargs='+',
+        default=None,
+        help='List of category/theme pairs to use (e.g., basic/places hardcore/people). See twenty_questions_words.json for available themes.'
+    )
+
+    parser.add_argument(
+        '--category',
         type=str,
-        default='iclr',
-        help='Word theme to use (default: iclr). See twenty_questions_words.json for available themes.'
+        default=None,
+        help='Load all themes from this category (e.g., basic, hardcore, test). Mutually exclusive with --themes.'
     )
 
     args = parser.parse_args()
@@ -434,6 +498,10 @@ if __name__ == "__main__":
     # Construct CLI command for reproducibility
     cli_command = ' '.join(sys.argv)
 
+    # Validate theme arguments
+    if args.themes and args.category:
+        parser.error("--themes and --category are mutually exclusive. Use only one.")
+
     # Run experiments with both agent types
     results = run_parallel_experiments(
         models=args.models,
@@ -443,7 +511,8 @@ if __name__ == "__main__":
         max_workers=args.max_workers,
         cli_command=cli_command,
         seed=args.seed,
-        theme=args.theme
+        theme_specs=args.themes,
+        category=args.category
     )
 
     # Print some summary statistics

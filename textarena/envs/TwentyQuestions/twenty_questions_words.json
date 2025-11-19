@@ -1,6 +1,6 @@
 {
-    "basic": {
-        "iclr": [
+    "test": {
+        "misc": [
             "school",
             "hospital",
             "restaurant",
@@ -13,7 +13,9 @@
             "banana",
             "table",
             "chair"
-        ],
+        ]
+    },
+    "basic": {
         "places": [
             "school",
             "hospital",

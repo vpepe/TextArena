@@ -254,7 +254,7 @@ class LLMAgent(ta.agents.OpenRouterAgent):
             word_list=self.word_data,
             history=history,
             remaining_questions=remaining_questions,
-            belief_state=self._format_belief_state(),
+            # belief_state=self._format_belief_state(),
         )
         prompt = DECISION_PROMPT.format(context=context)
 
@@ -296,7 +296,7 @@ class LLMAgent(ta.agents.OpenRouterAgent):
             word_list=self.word_data,
             history=history,
             remaining_questions=remaining_questions,
-            belief_state=self._format_belief_state(),
+            # belief_state=self._format_belief_state(),
         )
         prompt = QUESTION_PROMPT.format(context=context)
         log_prompt("QUESTION", prompt)
@@ -327,7 +327,7 @@ class LLMAgent(ta.agents.OpenRouterAgent):
             word_list=self.word_data,
             history=history,
             remaining_questions=remaining_questions,
-            belief_state=self._format_belief_state(),
+            # belief_state=self._format_belief_state(),
         )
 
         prompt = MOVE_PROMPT.format(context=context, word_list=self.word_data)
@@ -450,7 +450,7 @@ class LLMAgent(ta.agents.OpenRouterAgent):
 
         # Show top beliefs (with random tiebreaking)
         top_words = self._get_sorted_beliefs()
-        beliefs_str = ", ".join(f"{w}:{p:.2f}" for w, p in top_words)
+        beliefs_str = ", ".join(f"{w}: {p:.2f}" for w, p in top_words)
         entropy = shannon_entropy(list(self.belief_distribution.values()))
         logger.info(f"Top beliefs: [{beliefs_str}] | Entropy: {entropy:.3f}")
 
@@ -672,7 +672,7 @@ class EIGQuestionMixin:
                 word_list=self.word_data,
                 history=formatted_history,
                 remaining_questions=remaining_questions,
-                belief_state=self._format_belief_state(),
+                # belief_state=self._format_belief_state(),
             )
 
             questions = self._generate_batch_questions(context, remaining_questions, self.k, max_retries)
@@ -757,8 +757,8 @@ class BayesMAgent(LLMAgent):
     """LLM questions + Belief-based moves"""
 
     def get_base_prompt(self):
-        """Use BELIEF_PROMPT to show belief state in all prompts"""
-        return BELIEF_PROMPT
+        """Use BASE_PROMPT to show belief state in all prompts"""
+        return BASE_PROMPT
 
     def move(self, history: str, remaining_questions: int) -> str:
         """Make final guess based on belief distribution"""
@@ -773,8 +773,8 @@ class BayesQAgent(EIGQuestionMixin, LLMAgent):
         self.k = k
 
     def get_base_prompt(self):
-        """Use BELIEF_PROMPT to show belief state in all prompts"""
-        return BELIEF_PROMPT
+        """Use BASE_PROMPT to show belief state in all prompts"""
+        return BASE_PROMPT
 
 
 class BayesQMAgent(EIGQuestionMixin, LLMAgent):
@@ -785,8 +785,8 @@ class BayesQMAgent(EIGQuestionMixin, LLMAgent):
         self.k = k
 
     def get_base_prompt(self):
-        """Use BELIEF_PROMPT to show belief state in all prompts"""
-        return BELIEF_PROMPT
+        """Use BASE_PROMPT to show belief state in all prompts"""
+        return BASE_PROMPT
 
     def move(self, history: str, remaining_questions: int) -> str:
         """Make final guess based on belief distribution"""

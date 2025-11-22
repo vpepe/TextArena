@@ -29,12 +29,12 @@ DECISION_PROMPT = """
 
 Choose whether to ask another question or make your guess for the final answer. Be careful about guessing early, since if you guess wrong, you lose the game.
 
-Please think about your decision step by step and answer with one of the following options:
-
 - If you would like to ask a question, respond `<answer>question</answer>`
 - If you would like to make your final guess, respond `<answer>guess</answer>`
 
-Be sure your response is wrapped in `<answer></answer>` tags. Do not give the actual question or guess, just the decision.
+Do not give the actual question or guess, just the decision.
+
+Please think about your decision step by step and answer with one of the two options. Be sure your response is wrapped in `<answer></answer>` tags.
 """
 
 QUESTION_PROMPT = """
